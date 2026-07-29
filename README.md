@@ -10,8 +10,8 @@ lensmith/
 
 ## Prerequisites
 
-- Node.js 20+
-- pnpm 9+
+- Node.js 22+
+- pnpm 11+ (see `packageManager` in root `package.json`)
 - Conda (Miniconda / Anaconda)
 - API keys: `AI_GATEWAY_API_KEY` (Vercel AI Gateway / Gemini), `FAL_KEY` (fal.ai)
 
