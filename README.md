@@ -36,13 +36,13 @@ FastAPI `:8000` · Vue `:5173` · Stop with `Ctrl+C`.
 
 ## Routes
 
-| Path | Feature |
-|------|---------|
-| `/` | Landing |
-| `/demo` | Product demo |
-| `/storyboard` | 5-step AI storyboard wizard |
-| `/image-playground` | Image generation / editing |
-| `/timeline` | Timeline NLE (import, edit, export MP4) |
+| Path                | Feature                                 |
+| ------------------- | --------------------------------------- |
+| `/`                 | Landing                                 |
+| `/demo`             | Product demo                            |
+| `/storyboard`       | 5-step AI storyboard wizard             |
+| `/image-playground` | Image generation / editing              |
+| `/timeline`         | Timeline NLE (import, edit, export MP4) |
 
 ## Server only
 
@@ -96,3 +96,7 @@ See [server/.env.example](server/.env.example):
 - `AI_GATEWAY_API_KEY` — text / image Gemini routes
 - `FAL_KEY` — video generation, upscale, fal proxy
 - `CORS_ORIGINS` — default includes `http://localhost:5173`
+
+## Deploy (Docker + CI)
+
+Cloud VPS + Baota reverse proxy + GitHub Actions (GHCR + self-hosted runner): see [deploy/README.md](deploy/README.md).
