@@ -9,10 +9,5 @@
   },
   "devDependencies": {
     "concurrently": "^9.2.0"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
   }
 }
