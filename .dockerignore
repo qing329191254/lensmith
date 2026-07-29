@@ -1,0 +1,14 @@
+.git
+.github
+.cursor
+_legacy
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.env
+**/.DS_Store
+**/node_modules
+client/dist
+server/.env
+*.md
+agent-transcripts

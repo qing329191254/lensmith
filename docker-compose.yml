@@ -1,0 +1,28 @@
+services:
+  api:
+    build:
+      context: ./server
+    restart: unless-stopped
+    environment:
+      # Optional server-side fallback keys. Browser BYO keys via headers still work.
+      AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY:-}
+      TEXT_API_KEY: ${TEXT_API_KEY:-}
+      FAL_KEY: ${FAL_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    expose:
+      - "8000"
+
+  web:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - api
+    # Localhost only: let Baota Nginx publish :80 and reverse-proxy here.
+    ports:
+      - "127.0.0.1:8080:80"
+
+networks:
+  default:
+    name: lensmith_net
