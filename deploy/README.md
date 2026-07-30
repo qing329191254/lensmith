@@ -1,6 +1,8 @@
 # Deploy Lensmith (Docker + Baota + CI)
 
-Production layout: Docker Compose binds the app to `127.0.0.1:8080`. Baota Nginx reverse-proxies public `:80` to that address. GitHub Actions builds images on `ubuntu-latest`, pushes to GHCR, then a **self-hosted runner** on the VPS pulls and restarts.
+Production layout: both `api` and `web` use `network_mode: host`. Nginx listens on `127.0.0.1:8080` and proxies `/api` to `127.0.0.1:8000`. Baota reverse-proxies public `:80` to `8080`. GitHub Actions builds images on `ubuntu-latest`, pushes to GHCR, then a **self-hosted runner** on the VPS pulls and restarts.
+
+> Why host network for web too? Bridge + `extra_hosts: api:host-gateway` often hangs on Baota/VPS firewalls — the SPA loads but `/api/*` never responds.
 
 ## One-time server setup
 
@@ -27,6 +29,10 @@ Confirm locally on the server:
 
 ```bash
 curl -fsS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/
+curl -fsS http://127.0.0.1:8000/health
+curl -fsS -o /dev/null -w "%{http_code}\n" -X POST http://127.0.0.1:8080/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"smoke_test","password":"Test1234"}'
 docker compose ps
 ```
 

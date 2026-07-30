@@ -20,4 +20,5 @@ FROM nginx:1.27-alpine
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/client/dist /usr/share/nginx/html
 
-EXPOSE 80
+# nginx listens on 127.0.0.1:8080 when using compose network_mode: host
+EXPOSE 8080

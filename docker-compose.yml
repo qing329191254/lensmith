@@ -21,6 +21,7 @@ services:
       - ./data/uploads:/app/uploads
     # Baota MySQL usually listens on host 127.0.0.1 only. Bridge + host.docker.internal
     # fails in that case; host network lets DATABASE_URL keep @127.0.0.1:3306.
+    # Note: binds host :8000 — keep it firewalled from the public internet.
     network_mode: host
 
   web:
@@ -31,14 +32,7 @@ services:
     restart: unless-stopped
     depends_on:
       - api
-    # api is on host network (not Compose DNS). Map hostname "api" → host gateway
-    # so nginx proxy_pass http://api:8000 still works.
-    extra_hosts:
-      - "api:host-gateway"
-    # Localhost only: let Baota Nginx publish :80 and reverse-proxy here.
-    ports:
-      - "127.0.0.1:8080:80"
-
-networks:
-  default:
-    name: lensmith_net
+    # Same host network as api so nginx can proxy_pass http://127.0.0.1:8000.
+    # (Bridge + host-gateway often hangs on Baota/VPS iptables — /api never responds.)
+    # nginx listens on 127.0.0.1:8080 (see deploy/nginx.conf); Baota → that address.
+    network_mode: host
