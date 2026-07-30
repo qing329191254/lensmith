@@ -1,212 +1,21 @@
-import { useApiKeysStore } from "@/stores/apiKeys"
-import { useApiKeyPromptStore, type ApiKeyKind } from "@/stores/apiKeyPrompt"
-import { extractMediaUrl, sourceFromRoute, useAssetsStore } from "@/stores/assets"
-import { VIDEO_MODEL_OPTIONS, useModelPrefsStore } from "@/stores/modelPrefs"
-import { extractTokens, useUsageStore, type UsageRoute } from "@/stores/usage"
+/**
+ * Lensmith 业务接口，路径前缀 `/api/seq/*`。
+ *
+ * 共用请求逻辑在 `./http`（鉴权头、密钥检查、用量统计）。
+ * 页面继续从 `@/api/seq` 导入即可；公共符号在下方再导出。
+ */
 
-export class ApiKeyRequiredError extends Error {
-  kind: ApiKeyKind
+import { ensureImageKey, ensureKey, ensureVideoKey, trackedJson } from "@/api/http"
 
-  constructor(kind: ApiKeyKind) {
-    super("API_KEY_REQUIRED")
-    this.name = "ApiKeyRequiredError"
-    this.kind = kind
-  }
-}
+export {
+  ApiKeyRequiredError,
+  checkApiKey,
+  isApiKeyRequiredError,
+} from "@/api/http"
 
-export function isApiKeyRequiredError(error: unknown): error is ApiKeyRequiredError {
-  return error instanceof ApiKeyRequiredError || (error instanceof Error && error.name === "ApiKeyRequiredError")
-}
+// --- 文本 / 视觉 -----------------------------------------------------------
 
-async function parseJson(res: Response) {
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    const message =
-      (data as { error?: string; details?: string }).error ||
-      (data as { details?: string }).details ||
-      res.statusText
-    const text = typeof message === "string" ? message : "Request failed"
-    maybePromptFromMessage(text)
-    throw new Error(text)
-  }
-  return data
-}
-
-function maybePromptFromMessage(message: string) {
-  const lower = message.toLowerCase()
-  const looksMissing =
-    lower.includes("not configured") ||
-    lower.includes("api key") ||
-    lower.includes("api密钥") ||
-    lower.includes("密钥")
-  if (!looksMissing) return
-
-  const kind: ApiKeyKind = lower.includes("fal")
-    ? "fal"
-    : lower.includes("text api") || lower.includes("文本")
-      ? "text"
-      : "gateway"
-  useApiKeyPromptStore().show(kind)
-}
-
-function withAuth(init: RequestInit = {}): RequestInit {
-  const keys = useApiKeysStore()
-  const prefs = useModelPrefsStore()
-  const headers = new Headers(init.headers || {})
-  for (const [k, v] of Object.entries(keys.authHeaders())) headers.set(k, v)
-  for (const [k, v] of Object.entries(prefs.modelHeaders())) headers.set(k, v)
-  return { ...init, headers }
-}
-
-async function ensureKey(kind: ApiKeyKind): Promise<void> {
-  const keys = useApiKeysStore()
-  if (kind === "text" && keys.hasText) return
-  if (kind === "gateway" && keys.hasGateway) return
-  if (kind === "fal" && keys.hasFal) return
-
-  try {
-    const status = await checkApiKey()
-    if (kind === "text" && (status.textConfigured || status.configured)) return
-    if (kind === "gateway" && status.configured) return
-    if (kind === "fal" && status.falConfigured) return
-  } catch {
-    // Fall through and prompt — local keys are missing and status check failed.
-  }
-
-  useApiKeyPromptStore().show(kind)
-  throw new ApiKeyRequiredError(kind)
-}
-
-async function ensureImageKey(): Promise<void> {
-  await ensureKey("gateway")
-}
-
-async function ensureVideoKey(model?: string): Promise<void> {
-  const prefs = useModelPrefsStore()
-  const id = model || prefs.videoModel
-  const opt = VIDEO_MODEL_OPTIONS.find((o) => o.id === id)
-  // Known catalog: follow flags. Unknown custom: fal if looks like fal/veo/kling/wan; else gateway (compatible).
-  const needsFal =
-    opt?.needsFal === true ||
-    (!opt &&
-      /^(veo|kling|wan|minimax|seedance|fal-ai\/|bytedance\/)/i.test(id.trim()))
-  if (needsFal) await ensureKey("fal")
-  else await ensureKey("gateway")
-}
-
-async function trackedJson(
-  route: UsageRoute,
-  url: string,
-  init?: RequestInit,
-  meta?: { model?: string },
-) {
-  const usage = useUsageStore()
-  const started = performance.now()
-  let status = 0
-  try {
-    const res = await fetch(url, withAuth(init))
-    status = res.status
-    const headerMs = Number(res.headers.get("x-response-time-ms"))
-    const data = await parseJson(res)
-    const tokenInfo = extractTokens(data)
-    const model =
-      meta?.model ||
-      (typeof (data as { model?: string }).model === "string"
-        ? (data as { model: string }).model
-        : undefined)
-    usage.record({
-      route,
-      durationMs: Number.isFinite(headerMs) && headerMs > 0 ? headerMs : performance.now() - started,
-      ok: true,
-      status,
-      tokens: tokenInfo.tokens,
-      promptTokens: tokenInfo.promptTokens,
-      completionTokens: tokenInfo.completionTokens,
-      cachedTokens: tokenInfo.cachedTokens,
-      estimated: tokenInfo.estimated || tokenInfo.tokens <= 0,
-      model,
-    })
-    maybeRecordAssets(route, data, model)
-    return data
-  } catch (error) {
-    if (!isApiKeyRequiredError(error)) {
-      usage.record({
-        route,
-        durationMs: performance.now() - started,
-        ok: false,
-        status: status || undefined,
-        tokens: 0,
-        promptTokens: 0,
-        completionTokens: 0,
-        cachedTokens: 0,
-        estimated: true,
-        model: meta?.model,
-      })
-    }
-    throw error
-  }
-}
-
-function maybeRecordAssets(route: UsageRoute, data: unknown, model?: string) {
-  if (!data || typeof data !== "object") return
-  try {
-    const assets = useAssetsStore()
-    const source = sourceFromRoute(route)
-    const obj = data as Record<string, unknown>
-    const prompt =
-      (typeof obj.prompt === "string" && obj.prompt) ||
-      (typeof obj.workingPrompt === "string" && obj.workingPrompt) ||
-      ""
-
-    const media = extractMediaUrl(data)
-    if (media) {
-      assets.add({ kind: media.kind, url: media.url, prompt, source, model })
-    }
-
-    if (route === "storyboard-run" || route === "ad-run") {
-      const state = obj.state as Record<string, unknown> | undefined
-      if (!state) return
-      const working = typeof state.workingPrompt === "string" ? state.workingPrompt : prompt
-      if (typeof state.masterUrl === "string") {
-        assets.add({ kind: "image", url: state.masterUrl, prompt: working, source, model })
-      }
-      for (const url of (state.processedPanels as string[]) || []) {
-        if (typeof url === "string") assets.add({ kind: "image", url, prompt: working, source })
-      }
-      for (const url of (state.transitionPanels as string[]) || []) {
-        if (typeof url === "string") assets.add({ kind: "image", url, prompt: working, source })
-      }
-      for (const panel of (state.panels as Array<Record<string, unknown>>) || []) {
-        if (typeof panel?.imageUrl === "string") {
-          assets.add({ kind: "image", url: panel.imageUrl, prompt: String(panel.prompt || working), source })
-        }
-        if (typeof panel?.videoUrl === "string") {
-          assets.add({
-            kind: "video",
-            url: panel.videoUrl,
-            thumbUrl: typeof panel.imageUrl === "string" ? panel.imageUrl : undefined,
-            prompt: String(panel.prompt || working),
-            source,
-            model,
-          })
-        }
-      }
-    }
-  } catch (e) {
-    console.warn("Failed to record media asset", e)
-  }
-}
-
-export async function checkApiKey(): Promise<{
-  configured: boolean
-  textConfigured?: boolean
-  falConfigured?: boolean
-  sources?: { aiGateway: string; text?: string; fal: string }
-}> {
-  const res = await fetch("/api/seq/check-api-key", withAuth())
-  return parseJson(res)
-}
-
+/** 用文本模型改写故事提示词。 */
 export async function enhanceText(prompt: string): Promise<{ enhancedPrompt: string }> {
   await ensureKey("text")
   return trackedJson("enhance-text", "/api/seq/enhance-text", {
@@ -216,6 +25,7 @@ export async function enhanceText(prompt: string): Promise<{ enhancedPrompt: str
   })
 }
 
+/** 结合参考图优化分镜/镜头提示词（gateway / vision）。 */
 export async function enhancePrompt(payload: {
   imageUrl: string
   masterDescription?: string
@@ -229,7 +39,10 @@ export async function enhancePrompt(payload: {
   })
 }
 
-export async function analyzeStoryboard(imageUrl: string): Promise<{ panelCount: number; description?: string }> {
+/** 从主分镜图分析格数与描述。 */
+export async function analyzeStoryboard(
+  imageUrl: string,
+): Promise<{ panelCount: number; description?: string }> {
   await ensureKey("gateway")
   return trackedJson("analyze-storyboard", "/api/seq/analyze-storyboard", {
     method: "POST",
@@ -238,11 +51,17 @@ export async function analyzeStoryboard(imageUrl: string): Promise<{ panelCount:
   })
 }
 
-export async function generateImage(form: FormData): Promise<{ url: string; prompt: string; description?: string }> {
+// --- 图片 / 视频 -----------------------------------------------------------
+
+/** 生成或编辑图片（FormData：prompt、文件、模型字段等）。 */
+export async function generateImage(
+  form: FormData,
+): Promise<{ url: string; prompt: string; description?: string }> {
   await ensureImageKey()
   return trackedJson("generate-image", "/api/seq/generate-image", { method: "POST", body: form })
 }
 
+/** 图生视频 / 文生视频；所需密钥随所选模型（fal 或 gateway）而定。 */
 export async function generateVideo(payload: {
   prompt: string
   imageUrl?: string
@@ -265,6 +84,7 @@ export async function generateVideo(payload: {
   )
 }
 
+/** 通过 fal 放大图片。 */
 export async function upscale(image_url: string, prompt?: string): Promise<Record<string, unknown>> {
   await ensureKey("fal")
   return trackedJson("upscale", "/api/seq/upscale", {
@@ -274,6 +94,9 @@ export async function upscale(image_url: string, prompt?: string): Promise<Recor
   })
 }
 
+// --- 分镜（一次性流水线 + 可中断会话）---------------------------------------
+
+/** 一次性跑完 LangGraph 分镜流水线（无交互）。 */
 export async function runStoryboardPipeline(payload: {
   prompt: string
   options?: {
@@ -293,7 +116,13 @@ export async function runStoryboardPipeline(payload: {
   masterUrl?: string | null
   panelCount: number
   analysis?: string
-  panels: Array<{ index?: number; imageUrl?: string; prompt?: string; videoUrl?: string; error?: string }>
+  panels: Array<{
+    index?: number
+    imageUrl?: string
+    prompt?: string
+    videoUrl?: string
+    error?: string
+  }>
   errors: string[]
 }> {
   await ensureKey("gateway")
@@ -336,6 +165,7 @@ export type StoryboardSessionResponse = {
   }
 }
 
+/** 开启可中断的分镜向导会话（人机协同）。 */
 export async function startStoryboardSession(payload: {
   prompt?: string
   masterUrl?: string
@@ -354,6 +184,7 @@ export async function startStoryboardSession(payload: {
   })
 }
 
+/** 用户确认某步后，恢复分镜会话。 */
 export async function resumeStoryboardSession(
   threadId: string,
   payload: {
@@ -376,12 +207,15 @@ export async function resumeStoryboardSession(
   })
 }
 
+/** 查询 / 刷新分镜会话状态。 */
 export async function getStoryboardSession(threadId: string): Promise<StoryboardSessionResponse> {
   await ensureKey("gateway")
   return trackedJson("storyboard-run", `/api/seq/storyboard/session/${threadId}`, {
     method: "GET",
   })
 }
+
+// --- 短视频广告会话 --------------------------------------------------------
 
 export type AdBrief = {
   product: string
@@ -433,6 +267,7 @@ export type AdSessionResponse = {
   }
 }
 
+/** 根据产品 brief 开启短广告生成会话。 */
 export async function startAdSession(payload: {
   brief: AdBrief
   options?: { maxPanels?: number; useFastVideo?: boolean }
@@ -445,6 +280,7 @@ export async function startAdSession(payload: {
   })
 }
 
+/** 恢复广告会话（文案修改、分镜、视频等）。 */
 export async function resumeAdSession(
   threadId: string,
   payload: {
@@ -471,6 +307,7 @@ export async function resumeAdSession(
   })
 }
 
+/** 从 fal / 各厂商返回结构中取出可播放的视频 URL。 */
 export function extractVideoUrl(result: Record<string, unknown>): string | null {
   const data = (result.data as Record<string, unknown> | undefined) || result
   const video = data.video as { url?: string } | undefined

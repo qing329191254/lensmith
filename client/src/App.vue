@@ -81,7 +81,6 @@ onUnmounted(() => window.removeEventListener("keydown", onKey))
             <RouterLink class="nav-link" to="/image-playground">{{ t("nav.images") }}</RouterLink>
             <RouterLink class="nav-link" to="/timeline">{{ t("nav.timeline") }}</RouterLink>
             <RouterLink class="nav-link" to="/demo">{{ t("nav.demo") }}</RouterLink>
-            <RouterLink class="nav-link" to="/library">{{ t("nav.library") }}</RouterLink>
           </nav>
           <LocaleSwitch />
           <UserMenu />
@@ -119,7 +118,6 @@ onUnmounted(() => window.removeEventListener("keydown", onKey))
           <RouterLink class="nav-link nav-link-mobile" to="/image-playground">{{ t("nav.images") }}</RouterLink>
           <RouterLink class="nav-link nav-link-mobile" to="/timeline">{{ t("nav.timeline") }}</RouterLink>
           <RouterLink class="nav-link nav-link-mobile" to="/demo">{{ t("nav.demo") }}</RouterLink>
-          <RouterLink class="nav-link nav-link-mobile" to="/library">{{ t("nav.library") }}</RouterLink>
         </div>
       </nav>
     </header>
