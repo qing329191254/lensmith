@@ -12,11 +12,12 @@ cd /opt
 sudo git clone https://github.com/qing329191254/lensmith.git
 cd lensmith
 
-# Optional server-side fallback keys (do not commit)
-# Create /opt/lensmith/.env for compose (see repo root .env.example):
-#   DATABASE_URL=mysql+pymysql://user:pass@172.17.0.1:3306/lensmith
+# Create /opt/lensmith/.env (do not commit). Prefer host.docker.internal
+# (compose maps it to the host gateway) — not 127.0.0.1 / 172.17.0.1:
+#   DATABASE_URL=mysql+pymysql://user:pass@host.docker.internal:3306/lensmith
 #   JWT_SECRET=...
-# Deploy workflow will run ensure_db + alembic upgrade automatically.
+# Baota MySQL must listen beyond 127.0.0.1 (e.g. 0.0.0.0) and allow that user
+# from Docker (% or 172.%). Deploy runs ensure_db + alembic automatically.
 
 docker compose up -d --build
 ```

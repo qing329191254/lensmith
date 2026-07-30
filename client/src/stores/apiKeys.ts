@@ -1,5 +1,6 @@
 import { defineStore } from "pinia"
 import { computed, ref } from "vue"
+import { pushWorkspaceSettings } from "@/lib/push-settings"
 
 const STORAGE_KEY = "lensmith-api-keys"
 
@@ -57,6 +58,14 @@ export const useApiKeysStore = defineStore("apiKeys", () => {
     aiGatewayKey.value = next.aiGatewayKey.trim()
     falKey.value = next.falKey.trim()
     persist()
+    pushWorkspaceSettings()
+  }
+
+  function applyRemote(next: ApiKeysState) {
+    textApiKey.value = next.textApiKey.trim()
+    aiGatewayKey.value = next.aiGatewayKey.trim()
+    falKey.value = next.falKey.trim()
+    persist()
   }
 
   function clear() {
@@ -64,6 +73,7 @@ export const useApiKeysStore = defineStore("apiKeys", () => {
     aiGatewayKey.value = ""
     falKey.value = ""
     localStorage.removeItem(STORAGE_KEY)
+    pushWorkspaceSettings()
   }
 
   function authHeaders(): Record<string, string> {
@@ -83,6 +93,7 @@ export const useApiKeysStore = defineStore("apiKeys", () => {
     hasFal,
     hasAny,
     save,
+    applyRemote,
     clear,
     authHeaders,
   }

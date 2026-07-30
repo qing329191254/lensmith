@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 
 from app.config import get_settings
+from app.services.provider_errors import friendly_provider_error
 
 # Recommended defaults (overridable per request via headers / function args).
 TEXT_MODEL = "google/gemini-2.5-flash"
@@ -97,10 +98,11 @@ async def chat_completion(
     async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.post(url, headers=_headers(api_key), json=payload)
         if response.status_code >= 400:
+            raw = response.text[:2000]
             raise GatewayError(
-                "AI Gateway request failed",
+                friendly_provider_error(raw, status_code=response.status_code, what="chat"),
                 status_code=500,
-                details=response.text[:2000],
+                details=raw,
             )
         return response.json()
 

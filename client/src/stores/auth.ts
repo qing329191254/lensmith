@@ -1,6 +1,15 @@
 import { defineStore } from "pinia"
 import { computed, ref } from "vue"
-import { fetchMe, loginRequest, registerRequest, type AuthUser } from "@/api/auth"
+import {
+  changePasswordRequest,
+  deleteAvatarRequest,
+  fetchMe,
+  loginRequest,
+  registerRequest,
+  updateProfileRequest,
+  uploadAvatarRequest,
+  type AuthUser,
+} from "@/api/auth"
 
 const STORAGE_KEY = "lensmith-auth-token"
 
@@ -10,6 +19,7 @@ export const useAuthStore = defineStore("auth", () => {
   const bootstrapped = ref(false)
 
   const isLoggedIn = computed(() => Boolean(token.value && user.value))
+  const displayName = computed(() => user.value?.username || "")
 
   function persistToken(value: string) {
     token.value = value
@@ -20,6 +30,10 @@ export const useAuthStore = defineStore("auth", () => {
   function applySession(accessToken: string, nextUser: AuthUser) {
     persistToken(accessToken)
     user.value = nextUser
+  }
+
+  function setUser(next: AuthUser) {
+    user.value = next
   }
 
   async function bootstrap() {
@@ -41,11 +55,37 @@ export const useAuthStore = defineStore("auth", () => {
   async function login(username: string, password: string) {
     const data = await loginRequest(username, password)
     applySession(data.access_token, data.user)
+    const { syncUserCloudData } = await import("@/lib/cloud-sync")
+    await syncUserCloudData()
   }
 
   async function register(username: string, password: string) {
     const data = await registerRequest(username, password)
     applySession(data.access_token, data.user)
+    const { syncUserCloudData } = await import("@/lib/cloud-sync")
+    await syncUserCloudData()
+  }
+
+  async function updateProfile(username: string) {
+    const next = await updateProfileRequest(username)
+    setUser(next)
+    return next
+  }
+
+  async function changePassword(currentPassword: string, newPassword: string) {
+    await changePasswordRequest(currentPassword, newPassword)
+  }
+
+  async function uploadAvatar(file: Blob, filename?: string) {
+    const next = await uploadAvatarRequest(file, filename)
+    setUser(next)
+    return next
+  }
+
+  async function removeAvatar() {
+    const next = await deleteAvatarRequest()
+    setUser(next)
+    return next
   }
 
   function logout() {
@@ -58,9 +98,15 @@ export const useAuthStore = defineStore("auth", () => {
     user,
     bootstrapped,
     isLoggedIn,
+    displayName,
     bootstrap,
     login,
     register,
     logout,
+    updateProfile,
+    changePassword,
+    uploadAvatar,
+    removeAvatar,
+    setUser,
   }
 })

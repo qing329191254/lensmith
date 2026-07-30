@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue"
 import { useI18n } from "vue-i18n"
-import { analyzeStoryboard, generateImage } from "@/api/seq"
+import { analyzeStoryboard, generateImage, isRequestGateError } from "@/api/seq"
 import { DEMO_STORYBOARD } from "@/lib/demo-data"
 
 const props = withDefaults(
@@ -106,6 +106,7 @@ async function handleGenerate() {
     mode.value = "generate"
     await analyzeImage(data.url)
   } catch (e) {
+    if (isRequestGateError(e)) return
     console.error("Error:", e)
   } finally {
     isGenerating.value = false

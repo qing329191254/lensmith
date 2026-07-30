@@ -31,6 +31,7 @@ from app.routers import (
     generate_video,
     storyboard_run,
     upscale,
+    user_data,
 )
 
 settings = get_settings()
@@ -77,6 +78,7 @@ async def response_timing(request: Request, call_next):
 
 prefix = "/api/seq"
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(user_data.router, prefix="/api/me", tags=["me"])
 app.include_router(check_api_key.router, prefix=prefix, tags=["seq"])
 app.include_router(analyze_storyboard.router, prefix=prefix, tags=["seq"])
 app.include_router(enhance_text.router, prefix=prefix, tags=["seq"])

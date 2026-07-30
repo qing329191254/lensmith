@@ -9,8 +9,14 @@ import { ensureImageKey, ensureKey, ensureVideoKey, trackedJson } from "@/api/ht
 
 export {
   ApiKeyRequiredError,
+  AuthRequiredError,
   checkApiKey,
+  ensureImageKey,
+  ensureKey,
+  ensureVideoKey,
   isApiKeyRequiredError,
+  isAuthRequiredError,
+  isRequestGateError,
 } from "@/api/http"
 
 // --- 文本 / 视觉 -----------------------------------------------------------

@@ -13,8 +13,7 @@ const open = ref(false)
 const root = ref<HTMLElement | null>(null)
 
 const initial = computed(() => {
-  const name = auth.user?.username?.trim()
-  if (!name) return "?"
+  const name = auth.user?.username || "?"
   return name.slice(0, 1).toUpperCase()
 })
 
@@ -83,20 +82,28 @@ onUnmounted(() => {
       :aria-label="t('userMenu.open')"
       @click.stop="toggle"
     >
-      <span class="avatar-mark">{{ initial }}</span>
+      <span class="avatar-mark">
+        <img v-if="auth.user?.avatar_url" class="avatar-img" :src="auth.user.avatar_url" alt="" />
+        <template v-else>{{ initial }}</template>
+      </span>
     </button>
 
     <div v-if="open" class="menu" role="menu" @click.stop>
       <div class="menu-head">
-        <div class="avatar-mark avatar-mark-lg">{{ initial }}</div>
+        <div class="avatar-mark avatar-mark-lg">
+          <img v-if="auth.user?.avatar_url" class="avatar-img" :src="auth.user.avatar_url" alt="" />
+          <template v-else>{{ initial }}</template>
+        </div>
         <div class="min-w-0">
           <p class="truncate text-sm font-medium text-[var(--text)]">{{ auth.user?.username }}</p>
-          <p class="truncate text-xs text-[var(--muted)]">{{ t("userMenu.signedInHint") }}</p>
         </div>
       </div>
 
       <div class="menu-sep" />
 
+      <RouterLink class="menu-item" to="/profile" role="menuitem" @click="close">
+        {{ t("userMenu.profile") }}
+      </RouterLink>
       <RouterLink class="menu-item" to="/library" role="menuitem" @click="close">
         {{ t("nav.library") }}
       </RouterLink>
@@ -166,6 +173,13 @@ onUnmounted(() => {
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.02em;
+  overflow: hidden;
+}
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 .avatar-mark-lg {
   height: 2rem;

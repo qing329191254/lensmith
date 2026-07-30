@@ -15,6 +15,7 @@ from app.request_keys import (
     resolve_image_model,
 )
 from app.services.gateway import GatewayError, chat_completion, extract_images, extract_text, extract_usage
+from app.services.provider_errors import friendly_provider_error
 
 
 def _aspect_to_openai_size(aspect_ratio: str) -> str:
@@ -173,10 +174,11 @@ async def _openai_text_to_image(
             json=payload,
         )
         if response.status_code >= 400:
+            raw = response.text[:2000]
             raise GatewayError(
-                "OpenAI image request failed",
+                friendly_provider_error(raw, status_code=response.status_code, what="image"),
                 status_code=500,
-                details=response.text[:2000],
+                details=raw,
             )
         data = response.json()
 
@@ -219,10 +221,11 @@ async def _compatible_text_to_image(
             json=payload,
         )
         if response.status_code >= 400:
+            raw = response.text[:2000]
             raise GatewayError(
-                "Image request failed",
+                friendly_provider_error(raw, status_code=response.status_code, what="image"),
                 status_code=500,
-                details=response.text[:2000],
+                details=raw,
             )
         data = response.json()
 

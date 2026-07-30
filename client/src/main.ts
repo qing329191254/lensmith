@@ -4,6 +4,7 @@ import App from "./App.vue"
 import router from "./router"
 import { i18n } from "./i18n"
 import { useAuthStore } from "./stores/auth"
+import { syncUserCloudData } from "./lib/cloud-sync"
 import "./styles/main.css"
 
 const app = createApp(App)
@@ -12,6 +13,9 @@ app.use(pinia)
 app.use(router)
 app.use(i18n)
 
-useAuthStore(pinia).bootstrap().finally(() => {
-  app.mount("#app")
-})
+useAuthStore(pinia)
+  .bootstrap()
+  .then(() => syncUserCloudData())
+  .finally(() => {
+    app.mount("#app")
+  })

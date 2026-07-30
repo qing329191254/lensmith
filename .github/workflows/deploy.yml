@@ -61,9 +61,25 @@ jobs:
       - name: Pull, migrate, and restart
         working-directory: /opt/lensmith
         run: |
+          set -e
+          # Compose/workflow files live on the host clone; images alone are not enough
+          git fetch origin main
+          git reset --hard origin/main
+          if [ ! -f .env ]; then
+            echo "Missing /opt/lensmith/.env — create it with DATABASE_URL and JWT_SECRET"
+            exit 1
+          fi
+          if ! grep -q '^DATABASE_URL=.\+' .env; then
+            echo "DATABASE_URL is missing or empty in /opt/lensmith/.env"
+            exit 1
+          fi
+          # Ensure the Actions runner user can read .env (common Baota root-only permission issue)
+          if [ ! -r .env ]; then
+            echo "Cannot read /opt/lensmith/.env — run: sudo chmod 644 /opt/lensmith/.env"
+            exit 1
+          fi
           docker compose pull
-          docker compose up -d --remove-orphans
-          # Create DB if missing, then apply Alembic migrations (no-op when already up to date)
+          docker compose up -d --remove-orphans --force-recreate
           docker compose exec -T api python scripts/ensure_db.py
           docker compose exec -T api alembic upgrade head
           docker image prune -f

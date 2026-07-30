@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue"
 import { useI18n } from "vue-i18n"
-import { analyzeStoryboard, generateImage } from "@/api/seq"
+import { analyzeStoryboard, generateImage, isRequestGateError } from "@/api/seq"
 import { DEMO_TRANSITION_STORYBOARD } from "@/lib/demo-data"
 import { extractPanelFromGrid } from "@/lib/panel-extraction"
 import type { StorageMode } from "@/stores/storyboard"
@@ -81,6 +81,7 @@ async function handleGenerate() {
     generatedUrl.value = data.url
     await analyzeImage(data.url)
   } catch (e) {
+    if (isRequestGateError(e)) return
     console.error("Error:", e)
   } finally {
     isGenerating.value = false
@@ -117,6 +118,7 @@ async function processPanels() {
         : t("storyboard.transition.toastSaved", { count: extracted.length })
     emit("generate", extracted, analyzedCount.value)
   } catch (e) {
+    if (isRequestGateError(e)) return
     console.error("Processing error:", e)
     status.value = "ready"
   } finally {

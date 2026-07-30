@@ -4,15 +4,24 @@ services:
     build:
       context: ./server
     restart: unless-stopped
+    # Host /opt/lensmith/.env (must be readable by the user running compose)
+    env_file:
+      - .env
     environment:
       # Optional server-side fallback keys. Browser BYO keys via headers still work.
       AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY:-}
       TEXT_API_KEY: ${TEXT_API_KEY:-}
       FAL_KEY: ${FAL_KEY:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
-      DATABASE_URL: ${DATABASE_URL:-}
-      JWT_SECRET: ${JWT_SECRET:-}
+      # Require these from host .env (compose interpolation); do not default to empty
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in /opt/lensmith/.env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in /opt/lensmith/.env}
       JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-10080}
+    volumes:
+      - ./data/uploads:/app/uploads
+    # Reach MySQL on the host (Baota). Use host.docker.internal in DATABASE_URL.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     expose:
       - "8000"
 

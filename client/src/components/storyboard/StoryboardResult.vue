@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue"
 import { useI18n } from "vue-i18n"
 import { useRouter } from "vue-router"
-import { enhancePrompt, extractVideoUrl, generateVideo, isApiKeyRequiredError } from "@/api/seq"
+import { enhancePrompt, extractVideoUrl, generateVideo, isRequestGateError } from "@/api/seq"
 import { DEMO_FINAL_SEQUENCE } from "@/lib/demo-data"
 import { VIDEO_MODEL_OPTIONS, useModelPrefsStore } from "@/stores/modelPrefs"
 
@@ -110,7 +110,7 @@ async function handleEnhance(panel: ResultPanel) {
     })
     if (data.enhancedPrompt) updatePanel(panel.id, { prompt: data.enhancedPrompt })
   } catch (e) {
-    if (isApiKeyRequiredError(e)) return
+    if (isRequestGateError(e)) return
     console.error("Enhance failed", e)
   } finally {
     enhancing.value = null
@@ -137,7 +137,7 @@ async function generatePanelVideo(id: string) {
     if (!url) throw new Error(t("storyboard.errNoVideoUrl"))
     updatePanel(id, { videoUrl: url, isGenerating: false })
   } catch (e) {
-    if (isApiKeyRequiredError(e)) {
+    if (isRequestGateError(e)) {
       updatePanel(id, { isGenerating: false, error: undefined })
       return
     }

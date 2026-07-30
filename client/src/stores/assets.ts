@@ -1,5 +1,6 @@
 import { computed, ref, watch } from "vue"
 import { defineStore } from "pinia"
+import { clearCloudAssets, deleteCloudAsset, pushCloudAsset } from "@/api/me"
 
 export type AssetKind = "image" | "video"
 export type AssetSource =
@@ -81,6 +82,7 @@ function migrateLegacyImageHistory(): MediaAsset[] {
 
 export const useAssetsStore = defineStore("assets", () => {
   const items = ref<MediaAsset[]>(loadRaw())
+  let syncing = false
 
   function persist() {
     try {
@@ -97,7 +99,13 @@ export const useAssetsStore = defineStore("assets", () => {
     }
   }
 
-  watch(items, () => persist(), { deep: true })
+  watch(
+    items,
+    () => {
+      if (!syncing) persist()
+    },
+    { deep: true },
+  )
 
   function add(input: {
     kind: AssetKind
@@ -122,16 +130,41 @@ export const useAssetsStore = defineStore("assets", () => {
       createdAt: Date.now(),
     }
     items.value = [asset, ...items.value].slice(0, MAX_ASSETS)
+    if (localStorage.getItem("lensmith-auth-token")) {
+      void pushCloudAsset({
+        id: asset.id,
+        kind: asset.kind,
+        url: asset.url,
+        thumbUrl: asset.thumbUrl,
+        prompt: asset.prompt,
+        source: asset.source,
+        model: asset.model,
+        createdAt: asset.createdAt,
+      }).catch(() => {})
+    }
     return asset
   }
 
   function remove(id: string) {
     items.value = items.value.filter((a) => a.id !== id)
+    if (localStorage.getItem("lensmith-auth-token")) {
+      void deleteCloudAsset(id).catch(() => {})
+    }
   }
 
   function clear() {
     items.value = []
     localStorage.removeItem(STORAGE_KEY)
+    if (localStorage.getItem("lensmith-auth-token")) {
+      void clearCloudAssets().catch(() => {})
+    }
+  }
+
+  function replaceAll(next: MediaAsset[]) {
+    syncing = true
+    items.value = next.slice(0, MAX_ASSETS)
+    persist()
+    syncing = false
   }
 
   const images = computed(() => items.value.filter((a) => a.kind === "image"))
@@ -144,6 +177,7 @@ export const useAssetsStore = defineStore("assets", () => {
     add,
     remove,
     clear,
+    replaceAll,
   }
 })
 

@@ -7,10 +7,12 @@ import PanelProcessor from "@/components/storyboard/PanelProcessor.vue"
 import PanelSelector from "@/components/storyboard/PanelSelector.vue"
 import StoryboardResult from "@/components/storyboard/StoryboardResult.vue"
 import {
+  isRequestGateError,
   resumeStoryboardSession,
   startStoryboardSession,
   type StoryboardSessionResponse,
 } from "@/api/seq"
+import { formatApiError } from "@/lib/provider-errors"
 import { useStoryboardStore, type StoryboardStep } from "@/stores/storyboard"
 
 const { t } = useI18n()
@@ -119,8 +121,9 @@ async function handleStartGenerate(prompt: string) {
     // Stay on prompt for human approve / revise.
     store.step = "prompt"
   } catch (e) {
+    if (isRequestGateError(e)) return
     console.error(e)
-    graphError.value = e instanceof Error ? e.message : t("storyboard.hitl.failed")
+    graphError.value = formatApiError(e, t)
     masterPreviewUrl.value = null
   } finally {
     graphBusy.value = false
@@ -158,8 +161,9 @@ async function handleMasterApproved(url: string, prompt: string, panelCount: num
     }
     store.step = "transition"
   } catch (e) {
+    if (isRequestGateError(e)) return
     console.error(e)
-    graphError.value = e instanceof Error ? e.message : t("storyboard.hitl.failed")
+    graphError.value = formatApiError(e, t)
   } finally {
     graphBusy.value = false
   }
@@ -181,8 +185,9 @@ async function continueAfterTransition(decision: { action: string; transitionPro
     // Graph ran transition (optional) + process; now waiting for human selection.
     store.step = "selection"
   } catch (e) {
+    if (isRequestGateError(e)) return
     console.error(e)
-    graphError.value = e instanceof Error ? e.message : t("storyboard.hitl.failed")
+    graphError.value = formatApiError(e, t)
     store.step = "transition"
   } finally {
     graphBusy.value = false
@@ -234,8 +239,9 @@ async function handleSelectionComplete(
       store.step = "result"
     }
   } catch (e) {
+    if (isRequestGateError(e)) return
     console.error(e)
-    graphError.value = e instanceof Error ? e.message : t("storyboard.hitl.failed")
+    graphError.value = formatApiError(e, t)
     // Still allow local result editing if resume failed.
     store.step = "result"
   } finally {
@@ -259,8 +265,9 @@ async function handleProduceChoice(batch: boolean) {
     applySession(res)
     pendingProduce.value = false
   } catch (e) {
+    if (isRequestGateError(e)) return
     console.error(e)
-    graphError.value = e instanceof Error ? e.message : t("storyboard.hitl.failed")
+    graphError.value = formatApiError(e, t)
   } finally {
     graphBusy.value = false
   }

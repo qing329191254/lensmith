@@ -11,6 +11,7 @@ import httpx
 from app.request_keys import resolve_ai_gateway_key, resolve_compatible_api_base_url, resolve_video_model
 from app.services import fal as fal_service
 from app.services.gateway import GatewayError
+from app.services.provider_errors import friendly_provider_error
 
 
 # id -> capabilities + how to call
@@ -299,7 +300,12 @@ async def generate_via_compatible_video(
     async with httpx.AsyncClient(timeout=60.0) as client:
         create = await client.post(f"{base}/videos/generations", headers=headers, json=create_body)
         if create.status_code >= 400:
-            raise GatewayError("Video request failed", status_code=500, details=create.text[:2000])
+            raw = create.text[:2000]
+            raise GatewayError(
+                friendly_provider_error(raw, status_code=create.status_code, what="video"),
+                status_code=500,
+                details=raw,
+            )
         created = create.json()
         task_id = created.get("id") or created.get("request_id") or (created.get("data") or {}).get("id")
         if not task_id:
@@ -315,7 +321,12 @@ async def generate_via_compatible_video(
                     headers=headers,
                 )
             if status_res.status_code >= 400:
-                raise GatewayError("Video poll failed", details=status_res.text[:2000])
+                raw = status_res.text[:2000]
+                raise GatewayError(
+                    friendly_provider_error(raw, status_code=status_res.status_code, what="video"),
+                    status_code=500,
+                    details=raw,
+                )
             body = status_res.json()
             task_status = (
                 body.get("task_status")

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue"
 import { useI18n } from "vue-i18n"
-import { generateImage, isApiKeyRequiredError } from "@/api/seq"
+import { ensureImageKey, generateImage, isRequestGateError } from "@/api/seq"
 import FullscreenViewer from "@/components/images/FullscreenViewer.vue"
 import ImageUploadSlot from "@/components/images/ImageUploadSlot.vue"
+import { formatApiError } from "@/lib/provider-errors"
 import { useImageHistoryStore } from "@/stores/imageHistory"
 
 const { t } = useI18n()
@@ -161,6 +162,15 @@ async function run() {
     return
   }
 
+  // 登录 / 密钥闸门先于 loading，避免「生成中」闪一下再跳转或弹密钥提示
+  try {
+    await ensureImageKey()
+  } catch (e) {
+    if (isRequestGateError(e)) return
+    error.value = formatApiError(e, t)
+    return
+  }
+
   busy.value = true
   try {
     const form = new FormData()
@@ -176,8 +186,8 @@ async function run() {
     history.add({ url: result.url, prompt: result.prompt, mode: mode.value })
     selectedHistoryId.value = history.items[0]?.id ?? null
   } catch (e) {
-    if (isApiKeyRequiredError(e)) return
-    error.value = e instanceof Error ? e.message : String(e)
+    if (isRequestGateError(e)) return
+    error.value = formatApiError(e, t)
   } finally {
     busy.value = false
   }
@@ -276,7 +286,7 @@ onUnmounted(() => {
         <div class="flex items-center gap-3">
           <button
             type="button"
-            class="rounded-lg bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-[#1a120c] disabled:opacity-50"
+            class="generate-btn rounded-lg bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-[#1a120c] disabled:cursor-not-allowed disabled:opacity-50"
             :disabled="busy"
             @click="run"
           >
@@ -385,3 +395,25 @@ onUnmounted(() => {
     </div>
   </section>
 </template>
+
+<style scoped>
+.generate-btn {
+  cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    filter 0.15s ease,
+    box-shadow 0.15s ease;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset;
+}
+.generate-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.16) inset,
+    0 6px 16px rgba(232, 168, 124, 0.28);
+}
+.generate-btn:active:not(:disabled) {
+  transform: translateY(1px) scale(0.97);
+  filter: brightness(0.94);
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+}
+</style>

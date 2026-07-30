@@ -1,5 +1,6 @@
 import { computed, ref, watch } from "vue"
 import { defineStore } from "pinia"
+import { pushWorkspaceSettings } from "@/lib/push-settings"
 
 const STORAGE_KEY = "lensmith-model-prefs"
 
@@ -299,6 +300,7 @@ export const useModelPrefsStore = defineStore("modelPrefs", () => {
   const imageModel = ref(initial.imageModel)
   const videoModel = ref(initial.videoModel)
   const gatewayBaseUrl = ref(initial.gatewayBaseUrl)
+  let suppressPush = false
 
   function persist() {
     localStorage.setItem(
@@ -312,7 +314,10 @@ export const useModelPrefsStore = defineStore("modelPrefs", () => {
     )
   }
 
-  watch([textModel, imageModel, videoModel, gatewayBaseUrl], () => persist())
+  watch([textModel, imageModel, videoModel, gatewayBaseUrl], () => {
+    persist()
+    if (!suppressPush) pushWorkspaceSettings()
+  })
 
   function resetToRecommended() {
     textModel.value = RECOMMENDED.textModel
@@ -326,6 +331,16 @@ export const useModelPrefsStore = defineStore("modelPrefs", () => {
     if (next.imageModel != null) imageModel.value = next.imageModel.trim() || RECOMMENDED.imageModel
     if (next.videoModel != null) videoModel.value = next.videoModel.trim() || RECOMMENDED.videoModel
     if (next.gatewayBaseUrl != null) gatewayBaseUrl.value = next.gatewayBaseUrl.trim()
+  }
+
+  function applyRemote(next: Partial<ModelPrefsState>) {
+    suppressPush = true
+    if (next.textModel) textModel.value = next.textModel.trim() || RECOMMENDED.textModel
+    if (next.imageModel) imageModel.value = next.imageModel.trim() || RECOMMENDED.imageModel
+    if (next.videoModel) videoModel.value = next.videoModel.trim() || RECOMMENDED.videoModel
+    if (next.gatewayBaseUrl != null) gatewayBaseUrl.value = next.gatewayBaseUrl.trim()
+    persist()
+    suppressPush = false
   }
 
   function modelHeaders(): Record<string, string> {
@@ -357,6 +372,7 @@ export const useModelPrefsStore = defineStore("modelPrefs", () => {
     gatewayBaseUrl,
     usingRecommended,
     save,
+    applyRemote,
     resetToRecommended,
     modelHeaders,
   }

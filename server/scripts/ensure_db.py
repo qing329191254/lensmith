@@ -9,7 +9,11 @@ import os
 load_dotenv()
 url = os.getenv("DATABASE_URL", "").strip()
 if not url:
-    raise SystemExit("DATABASE_URL is empty")
+    raise SystemExit(
+        "DATABASE_URL is empty inside the api container.\n"
+        "Fix: ensure /opt/lensmith/.env exists, is readable by the deploy user, "
+        "then: docker compose up -d --force-recreate"
+    )
 
 # mysql+pymysql://user:pass@host:port/dbname
 normalized = url.replace("mysql+pymysql://", "mysql://", 1)

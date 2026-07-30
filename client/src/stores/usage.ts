@@ -1,6 +1,7 @@
 import { computed, ref } from "vue"
 import { defineStore } from "pinia"
 import { estimateCostUsd } from "@/lib/pricing"
+import { clearCloudUsage, pushCloudUsage } from "@/api/me"
 
 const STORAGE_KEY = "lensmith-usage-events"
 const MAX_EVENTS = 800
@@ -175,11 +176,39 @@ export const useUsageStore = defineStore("usage", () => {
       ...events.value,
     ].slice(0, MAX_EVENTS)
     persist()
+    const newest = events.value[0]
+    if (newest && localStorage.getItem("lensmith-auth-token")) {
+      void pushCloudUsage([
+        {
+          id: newest.id,
+          ts: newest.ts,
+          route: newest.route,
+          durationMs: newest.durationMs,
+          ok: newest.ok,
+          status: newest.status,
+          tokens: newest.tokens,
+          promptTokens: newest.promptTokens,
+          completionTokens: newest.completionTokens,
+          cachedTokens: newest.cachedTokens,
+          estimated: newest.estimated,
+          model: newest.model,
+          sample: newest.sample,
+        },
+      ]).catch(() => {})
+    }
+  }
+
+  function replaceAll(next: UsageEvent[]) {
+    events.value = next.slice(0, MAX_EVENTS)
+    persist()
   }
 
   function clear() {
     events.value = []
     localStorage.removeItem(STORAGE_KEY)
+    if (localStorage.getItem("lensmith-auth-token")) {
+      void clearCloudUsage().catch(() => {})
+    }
   }
 
   function seedSample() {
@@ -243,6 +272,25 @@ export const useUsageStore = defineStore("usage", () => {
     }
     events.value = sample.sort((a, b) => b.ts - a.ts)
     persist()
+    if (localStorage.getItem("lensmith-auth-token")) {
+      void pushCloudUsage(
+        sample.map((e) => ({
+          id: e.id,
+          ts: e.ts,
+          route: e.route,
+          durationMs: e.durationMs,
+          ok: e.ok,
+          status: e.status,
+          tokens: e.tokens,
+          promptTokens: e.promptTokens,
+          completionTokens: e.completionTokens,
+          cachedTokens: e.cachedTokens,
+          estimated: e.estimated,
+          model: e.model,
+          sample: e.sample,
+        })),
+      ).catch(() => {})
+    }
   }
 
   function inRange(range: UsageRange) {
@@ -395,6 +443,7 @@ export const useUsageStore = defineStore("usage", () => {
     events,
     liveCount,
     record,
+    replaceAll,
     clear,
     seedSample,
     summarize,

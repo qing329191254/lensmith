@@ -16,6 +16,10 @@ __pycache__/
 .env.*
 !.env.example
 
+# Uploads
+uploads/
+data/uploads/
+
 # Build
 dist/
 dist-ssr/

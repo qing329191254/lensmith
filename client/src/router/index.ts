@@ -17,6 +17,7 @@ const router = createRouter({
     { path: "/usage", name: "usage", component: () => import("@/views/UsageView.vue") },
     { path: "/library", name: "library", component: () => import("@/views/LibraryView.vue") },
     { path: "/login", name: "login", component: () => import("@/views/LoginView.vue") },
+    { path: "/profile", name: "profile", component: () => import("@/views/ProfileView.vue") },
   ],
   scrollBehavior() {
     return { top: 0 }

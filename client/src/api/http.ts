@@ -12,8 +12,10 @@
 import { useApiKeysStore } from "@/stores/apiKeys"
 import { useApiKeyPromptStore, type ApiKeyKind } from "@/stores/apiKeyPrompt"
 import { extractMediaUrl, sourceFromRoute, useAssetsStore } from "@/stores/assets"
+import { useAuthStore } from "@/stores/auth"
 import { VIDEO_MODEL_OPTIONS, useModelPrefsStore } from "@/stores/modelPrefs"
 import { extractTokens, useUsageStore, type UsageRoute } from "@/stores/usage"
+import router from "@/router"
 
 /** 缺少所需 BYO 密钥时抛出；UI 应打开密钥填写弹窗。 */
 export class ApiKeyRequiredError extends Error {
@@ -26,6 +28,14 @@ export class ApiKeyRequiredError extends Error {
   }
 }
 
+/** 需要登录才能使用需密钥的能力；已触发跳转登录页。 */
+export class AuthRequiredError extends Error {
+  constructor() {
+    super("AUTH_REQUIRED")
+    this.name = "AuthRequiredError"
+  }
+}
+
 export function isApiKeyRequiredError(error: unknown): error is ApiKeyRequiredError {
   return (
     error instanceof ApiKeyRequiredError ||
@@ -33,15 +43,42 @@ export function isApiKeyRequiredError(error: unknown): error is ApiKeyRequiredEr
   )
 }
 
+export function isAuthRequiredError(error: unknown): error is AuthRequiredError {
+  return (
+    error instanceof AuthRequiredError ||
+    (error instanceof Error && error.name === "AuthRequiredError")
+  )
+}
+
+/** 登录跳转或缺密钥弹窗：调用方应静默返回，勿当普通错误展示。 */
+export function isRequestGateError(error: unknown): boolean {
+  return isApiKeyRequiredError(error) || isAuthRequiredError(error)
+}
+
+/** 未登录则跳到登录页（带回跳），并抛出 AuthRequiredError。 */
+function requireLogin(): void {
+  const auth = useAuthStore()
+  if (auth.isLoggedIn) return
+  const path = router.currentRoute.value.fullPath
+  router.push({
+    name: "login",
+    query: { redirect: path.startsWith("/") ? path : "/" },
+  })
+  throw new AuthRequiredError()
+}
+
 /** 解析 JSON；HTTP 失败时可能弹出密钥提示并抛错。 */
 export async function parseJson(res: Response) {
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    const message =
-      (data as { error?: string; details?: string }).error ||
-      (data as { details?: string }).details ||
-      res.statusText
-    const text = typeof message === "string" ? message : "Request failed"
+    const errorField = (data as { error?: string }).error
+    const detailsField = (data as { details?: string }).details
+    const errorText = typeof errorField === "string" ? errorField : ""
+    const detailsText = typeof detailsField === "string" ? detailsField : ""
+    const text =
+      [errorText, detailsText].filter(Boolean).join("\n") ||
+      res.statusText ||
+      "Request failed"
     maybePromptFromMessage(text)
     throw new Error(text)
   }
@@ -93,9 +130,11 @@ export async function checkApiKey(): Promise<ApiKeyStatus> {
 
 /**
  * 确保某类密钥可用（本地或服务端兜底）。
- * 仍缺失时打开密钥弹窗并抛出 ApiKeyRequiredError。
+ * 未登录先跳转登录；仍缺密钥时打开弹窗并抛出 ApiKeyRequiredError。
  */
 export async function ensureKey(kind: ApiKeyKind): Promise<void> {
+  requireLogin()
+
   const keys = useApiKeysStore()
   if (kind === "text" && keys.hasText) return
   if (kind === "gateway" && keys.hasGateway) return
@@ -173,7 +212,7 @@ export async function trackedJson(
     maybeRecordAssets(route, data, model)
     return data
   } catch (error) {
-    if (!isApiKeyRequiredError(error)) {
+    if (!isRequestGateError(error)) {
       usage.record({
         route,
         durationMs: performance.now() - started,

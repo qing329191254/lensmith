@@ -3,6 +3,7 @@ import { ref, watch } from "vue"
 import { useI18n } from "vue-i18n"
 import { DEMO_STORYBOARD } from "@/lib/demo-data"
 import { extractPanelFromGrid } from "@/lib/panel-extraction"
+import { isRequestGateError } from "@/api/seq"
 import type { StorageMode } from "@/stores/storyboard"
 
 const props = withDefaults(
@@ -85,6 +86,7 @@ async function processPanels() {
 
     emit("complete", panels.value)
   } catch (e) {
+    if (isRequestGateError(e)) return
     console.error("Processing error:", e)
     status.value = "ready"
   } finally {

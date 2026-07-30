@@ -5,7 +5,8 @@ import TransitionGenerator from "@/components/storyboard/TransitionGenerator.vue
 import PanelProcessor from "@/components/storyboard/PanelProcessor.vue"
 import PanelSelector from "@/components/storyboard/PanelSelector.vue"
 import StoryboardResult from "@/components/storyboard/StoryboardResult.vue"
-import { resumeAdSession, startAdSession, type AdSessionResponse } from "@/api/seq"
+import { isRequestGateError, resumeAdSession, startAdSession, type AdSessionResponse } from "@/api/seq"
+import { formatApiError } from "@/lib/provider-errors"
 import { useAdStore, type AdStep } from "@/stores/ads"
 
 const { t } = useI18n()
@@ -126,8 +127,9 @@ async function handleStartBrief() {
     applySession(res)
     store.step = "copy"
   } catch (e) {
+    if (isRequestGateError(e)) return
     console.error(e)
-    graphError.value = e instanceof Error ? e.message : t("ads.failed")
+    graphError.value = formatApiError(e, t)
   } finally {
     graphBusy.value = false
   }
@@ -142,8 +144,9 @@ async function handleReviseMaster() {
     applySession(res)
     store.step = "master"
   } catch (e) {
+    if (isRequestGateError(e)) return
     console.error(e)
-    graphError.value = e instanceof Error ? e.message : t("ads.failed")
+    graphError.value = formatApiError(e, t)
   } finally {
     graphBusy.value = false
   }
@@ -164,8 +167,9 @@ async function handleApproveCopy() {
     applySession(res)
     store.step = "master"
   } catch (e) {
+    if (isRequestGateError(e)) return
     console.error(e)
-    graphError.value = e instanceof Error ? e.message : t("ads.failed")
+    graphError.value = formatApiError(e, t)
     store.step = "copy"
   } finally {
     graphBusy.value = false
@@ -186,8 +190,9 @@ async function handleReviseCopy() {
     applySession(res)
     store.step = "copy"
   } catch (e) {
+    if (isRequestGateError(e)) return
     console.error(e)
-    graphError.value = e instanceof Error ? e.message : t("ads.failed")
+    graphError.value = formatApiError(e, t)
   } finally {
     graphBusy.value = false
   }
@@ -201,8 +206,9 @@ async function handleApproveMaster() {
     applySession(res)
     store.step = "transition"
   } catch (e) {
+    if (isRequestGateError(e)) return
     console.error(e)
-    graphError.value = e instanceof Error ? e.message : t("ads.failed")
+    graphError.value = formatApiError(e, t)
   } finally {
     graphBusy.value = false
   }
@@ -221,8 +227,9 @@ async function continueAfterTransition(decision: { action: string; transitionPro
     }
     store.step = "selection"
   } catch (e) {
+    if (isRequestGateError(e)) return
     console.error(e)
-    graphError.value = e instanceof Error ? e.message : t("ads.failed")
+    graphError.value = formatApiError(e, t)
     store.step = "transition"
   } finally {
     graphBusy.value = false
@@ -266,8 +273,9 @@ async function handleSelectionComplete(
     pendingProduce.value = res.waitingFor === "confirm_produce"
     store.step = "result"
   } catch (e) {
+    if (isRequestGateError(e)) return
     console.error(e)
-    graphError.value = e instanceof Error ? e.message : t("ads.failed")
+    graphError.value = formatApiError(e, t)
     store.step = "result"
   } finally {
     graphBusy.value = false
@@ -290,8 +298,9 @@ async function handleProduceChoice(batch: boolean) {
     applySession(res)
     pendingProduce.value = false
   } catch (e) {
+    if (isRequestGateError(e)) return
     console.error(e)
-    graphError.value = e instanceof Error ? e.message : t("ads.failed")
+    graphError.value = formatApiError(e, t)
   } finally {
     graphBusy.value = false
   }
