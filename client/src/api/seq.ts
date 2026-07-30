@@ -26,6 +26,23 @@ export {
   isRequestGateError,
 } from "@/api/http"
 
+/** Same-origin proxy for remote CDN images (Volcengine TOS etc. block browser CORS). */
+export function mediaFetchUrl(url: string): string {
+  if (!url || url.startsWith("data:") || url.startsWith("blob:") || url.startsWith("/")) {
+    return url
+  }
+  return `/api/seq/fetch-media?url=${encodeURIComponent(url)}`
+}
+
+export async function fetchMediaBlob(url: string): Promise<Blob> {
+  const res = await fetch(mediaFetchUrl(url))
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "")
+    throw new Error(detail || `Failed to fetch media (${res.status})`)
+  }
+  return res.blob()
+}
+
 // --- 文本 / 视觉 -----------------------------------------------------------
 
 /** 用文本模型改写故事提示词（与生图共用绘图密钥）。 */

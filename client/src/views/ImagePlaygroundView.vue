@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue"
 import { useI18n } from "vue-i18n"
-import { ensureImageKey, generateImage, isRequestGateError } from "@/api/seq"
+import { ensureImageKey, fetchMediaBlob, generateImage, isRequestGateError } from "@/api/seq"
 import FullscreenViewer from "@/components/images/FullscreenViewer.vue"
 import ImageUploadSlot from "@/components/images/ImageUploadSlot.vue"
 import { formatApiError } from "@/lib/provider-errors"
@@ -68,9 +68,9 @@ function clearImage(which: 1 | 2) {
 }
 
 async function urlToFile(url: string, name = "generated.png"): Promise<File> {
-  const res = await fetch(url)
-  const blob = await res.blob()
-  return new File([blob], name, { type: blob.type || "image/png" })
+  const blob = await fetchMediaBlob(url)
+  const ext = blob.type.includes("jpeg") || blob.type.includes("jpg") ? "jpg" : "png"
+  return new File([blob], name.replace(/\.\w+$/, `.${ext}`), { type: blob.type || "image/png" })
 }
 
 async function useAsInput() {
@@ -85,20 +85,30 @@ async function useAsInput() {
   }
 }
 
+async function imageUrlToPngBlob(url: string): Promise<Blob> {
+  // Remote CDNs (e.g. Volcengine TOS) block browser CORS — go through same-origin proxy.
+  const blob = await fetchMediaBlob(url)
+  if (blob.type === "image/png") return blob
+  const bmp = await createImageBitmap(blob)
+  const canvas = document.createElement("canvas")
+  canvas.width = bmp.width
+  canvas.height = bmp.height
+  canvas.getContext("2d")!.drawImage(bmp, 0, 0)
+  bmp.close()
+  return await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("canvas"))), "image/png")
+  })
+}
+
 async function copyToClipboard() {
   if (!resultUrl.value) return
+  // Clipboard image API requires a secure context (HTTPS or localhost).
+  if (!window.isSecureContext || !navigator.clipboard?.write) {
+    showToast(t("images.copyNeedsHttps"))
+    return
+  }
   try {
-    const img = new Image()
-    img.crossOrigin = "anonymous"
-    img.src = resultUrl.value
-    await img.decode()
-    const canvas = document.createElement("canvas")
-    canvas.width = img.naturalWidth
-    canvas.height = img.naturalHeight
-    canvas.getContext("2d")!.drawImage(img, 0, 0)
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("canvas"))), "image/png")
-    })
+    const blob = await imageUrlToPngBlob(resultUrl.value)
     await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })])
     showToast(t("images.copied"))
   } catch {
@@ -106,12 +116,26 @@ async function copyToClipboard() {
   }
 }
 
-function downloadResult() {
+async function downloadResult() {
   if (!resultUrl.value) return
-  const link = document.createElement("a")
-  link.href = resultUrl.value
-  link.download = `lensmith-${Date.now()}.png`
-  link.click()
+  try {
+    const blob = await fetchMediaBlob(resultUrl.value)
+    const objectUrl = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = objectUrl
+    const ext = blob.type.includes("jpeg") || blob.type.includes("jpg") ? "jpg" : "png"
+    link.download = `lensmith-${Date.now()}.${ext}`
+    link.click()
+    URL.revokeObjectURL(objectUrl)
+  } catch {
+    // Fallback: open remote URL (may not force download name)
+    const link = document.createElement("a")
+    link.href = resultUrl.value
+    link.download = `lensmith-${Date.now()}.png`
+    link.target = "_blank"
+    link.rel = "noopener"
+    link.click()
+  }
 }
 
 function selectHistory(id: string, url: string) {

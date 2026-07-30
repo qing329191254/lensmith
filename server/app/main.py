@@ -26,6 +26,7 @@ from app.routers import (
     enhance_prompt,
     enhance_text,
     fal_proxy,
+    fetch_media,
     generate_image,
     generate_video,
     storyboard_run,
@@ -86,6 +87,7 @@ app.include_router(generate_image.router, prefix=prefix, tags=["seq"])
 app.include_router(generate_video.router, prefix=prefix, tags=["seq"])
 app.include_router(upscale.router, prefix=prefix, tags=["seq"])
 app.include_router(fal_proxy.router, prefix=prefix, tags=["seq"])
+app.include_router(fetch_media.router, prefix=prefix, tags=["seq"])
 app.include_router(storyboard_run.router, prefix=prefix, tags=["seq", "langgraph"])
 
 
