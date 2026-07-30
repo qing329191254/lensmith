@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import { useI18n } from "vue-i18n"
 import { ensureImageKey, fetchMediaBlob, generateImage, isRequestGateError, prefetchMediaBlob } from "@/api/seq"
 import FullscreenViewer from "@/components/images/FullscreenViewer.vue"
+import { LENSMITH_IMAGE_URL_MIME } from "@/components/images/dragMime"
 import ImageUploadSlot from "@/components/images/ImageUploadSlot.vue"
 import { formatApiError } from "@/lib/provider-errors"
 import { useImageHistoryStore } from "@/stores/imageHistory"
@@ -73,16 +74,38 @@ async function urlToFile(url: string, name = "generated.png"): Promise<File> {
   return new File([blob], name.replace(/\.\w+$/, `.${ext}`), { type: blob.type || "image/png" })
 }
 
+async function applyUrlToSlot(which: 1 | 2, url: string) {
+  mode.value = "image-editing"
+  const file = await urlToFile(url, `reference-${which}.png`)
+  setImage(which, file)
+  showToast(which === 1 ? t("images.usedAsInput") : t("images.usedAsInput2"))
+}
+
 async function useAsInput() {
   if (!resultUrl.value) return
   try {
-    mode.value = "image-editing"
-    const file = await urlToFile(resultUrl.value)
-    setImage(1, file)
-    showToast(t("images.usedAsInput"))
+    await applyUrlToSlot(1, resultUrl.value)
   } catch {
     showToast(t("images.copyFailed"))
   }
+}
+
+async function onSlotDropUrl(which: 1 | 2, url: string) {
+  try {
+    await applyUrlToSlot(which, url)
+  } catch {
+    showToast(t("images.copyFailed"))
+  }
+}
+
+function onResultDragStart(event: DragEvent, url: string) {
+  if (!url || !event.dataTransfer) return
+  // Ensure edit slots are visible while dragging.
+  mode.value = "image-editing"
+  event.dataTransfer.setData(LENSMITH_IMAGE_URL_MIME, url)
+  event.dataTransfer.setData("text/uri-list", url)
+  event.dataTransfer.setData("text/plain", url)
+  event.dataTransfer.effectAllowed = "copy"
 }
 
 async function blobToPng(blob: Blob): Promise<Blob> {
@@ -302,6 +325,7 @@ onUnmounted(() => {
             :preview="image1Preview"
             :label="t('images.image1')"
             @select="setImage(1, $event)"
+            @drop-url="onSlotDropUrl(1, $event)"
             @clear="clearImage(1)"
           />
           <ImageUploadSlot
@@ -309,6 +333,7 @@ onUnmounted(() => {
             :preview="image2Preview"
             :label="t('images.image2')"
             @select="setImage(2, $event)"
+            @drop-url="onSlotDropUrl(2, $event)"
             @clear="clearImage(2)"
           />
         </div>
@@ -343,7 +368,9 @@ onUnmounted(() => {
             v-if="resultUrl"
             :src="resultUrl"
             :alt="t('images.altResult')"
-            class="h-full w-full cursor-zoom-in object-contain"
+            class="h-full w-full cursor-grab object-contain active:cursor-grabbing"
+            draggable="true"
+            @dragstart="onResultDragStart($event, resultUrl)"
             @click="showFullscreen = true"
           />
           <p v-else class="text-sm text-[var(--muted)]">{{ t("images.resultPlaceholder") }}</p>
@@ -403,13 +430,20 @@ onUnmounted(() => {
                 class="group relative overflow-hidden rounded-lg border"
                 :class="selectedHistoryId === item.id ? 'border-[var(--accent)]' : 'border-[var(--border)]'"
               >
-                <button type="button" class="block w-full" @click="selectHistory(item.id, item.url)">
+                <button
+                  type="button"
+                  class="block w-full cursor-grab active:cursor-grabbing"
+                  draggable="true"
+                  @dragstart="onResultDragStart($event, item.url)"
+                  @click="selectHistory(item.id, item.url)"
+                >
                   <img
                     :src="item.url"
                     :alt="item.prompt"
-                    class="aspect-square object-cover"
+                    class="aspect-square object-cover pointer-events-none"
                     loading="lazy"
                     decoding="async"
+                    draggable="false"
                   />
                 </button>
                 <button

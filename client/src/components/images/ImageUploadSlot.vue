@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref } from "vue"
 import { useI18n } from "vue-i18n"
+import { LENSMITH_IMAGE_URL_MIME } from "@/components/images/dragMime"
 
-const props = defineProps<{
+defineProps<{
   slotNumber: 1 | 2
   preview: string
   label: string
@@ -10,6 +11,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   select: [file: File]
+  dropUrl: [url: string]
   clear: []
 }>()
 
@@ -27,15 +29,35 @@ function onInputChange(event: Event) {
   ;(event.target as HTMLInputElement).value = ""
 }
 
+function readDroppedUrl(dt: DataTransfer): string | null {
+  const custom = dt.getData(LENSMITH_IMAGE_URL_MIME)?.trim()
+  if (custom) return custom
+  const uriList = dt.getData("text/uri-list")?.split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("#"))
+  if (uriList) return uriList
+  const text = dt.getData("text/plain")?.trim()
+  if (text && /^(https?:|data:|blob:)/i.test(text)) return text
+  return null
+}
+
 function onDrop(event: DragEvent) {
   event.preventDefault()
   dragging.value = false
-  const file = event.dataTransfer?.files?.[0]
+  const dt = event.dataTransfer
+  if (!dt) return
+
+  const url = readDroppedUrl(dt)
+  if (url) {
+    emit("dropUrl", url)
+    return
+  }
+
+  const file = dt.files?.[0]
   if (file?.type.startsWith("image/")) emit("select", file)
 }
 
 function onDragOver(event: DragEvent) {
   event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy"
   dragging.value = true
 }
 
@@ -90,6 +112,7 @@ function onDragLeave() {
         :src="preview"
         :alt="label"
         class="max-h-[160px] w-full object-contain p-2"
+        draggable="false"
       />
       <div v-else class="px-4 py-6 text-center text-[var(--muted)]">
         <svg class="mx-auto mb-2 h-8 w-8 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
