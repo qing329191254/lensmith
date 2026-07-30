@@ -7,6 +7,8 @@ RUN corepack enable
 
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY client/package.json ./client/
+# postinstall needs copy-ffmpeg.mjs before pnpm install
+COPY client/scripts ./client/scripts/
 
 RUN pnpm install --frozen-lockfile
 
