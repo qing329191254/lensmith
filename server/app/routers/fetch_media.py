@@ -19,6 +19,9 @@ _ALLOWED_HOST_SUFFIXES = (
     ".aliyuncs.com",
     ".bigmodel.cn",
     ".zhipuai.cn",
+    # Zhipu / MaaS watermark & asset CDN (UCloud)
+    ".ufileos.com",
+    ".ucloud.cn",
     ".siliconflow.cn",
     ".openai.com",
     ".blob.core.windows.net",
