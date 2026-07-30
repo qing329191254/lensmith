@@ -12,12 +12,13 @@ cd /opt
 sudo git clone https://github.com/qing329191254/lensmith.git
 cd lensmith
 
-# Create /opt/lensmith/.env (do not commit). Prefer host.docker.internal
-# (compose maps it to the host gateway) — not 127.0.0.1 / 172.17.0.1:
-#   DATABASE_URL=mysql+pymysql://user:pass@host.docker.internal:3306/lensmith
+# Create /opt/lensmith/.env (do not commit). With compose network_mode=host for api,
+# keep MySQL on loopback (typical Baota install):
+#   DATABASE_URL=mysql+pymysql://user:pass@127.0.0.1:3306/lensmith
 #   JWT_SECRET=...
-# Baota MySQL must listen beyond 127.0.0.1 (e.g. 0.0.0.0) and allow that user
-# from Docker (% or 172.%). Deploy runs ensure_db + alembic automatically.
+# Do not point DATABASE_URL at host.docker.internal unless MySQL listens on the
+# Docker bridge. Deploy runs ensure_db + alembic automatically.
+# Note: api binds host :8000 — keep it firewalled from the public internet.
 
 docker compose up -d --build
 ```

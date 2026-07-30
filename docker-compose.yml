@@ -19,11 +19,9 @@ services:
       JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-10080}
     volumes:
       - ./data/uploads:/app/uploads
-    # Reach MySQL on the host (Baota). Use host.docker.internal in DATABASE_URL.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    expose:
-      - "8000"
+    # Baota MySQL usually listens on host 127.0.0.1 only. Bridge + host.docker.internal
+    # fails in that case; host network lets DATABASE_URL keep @127.0.0.1:3306.
+    network_mode: host
 
   web:
     image: ghcr.io/qing329191254/lensmith-web:latest
@@ -33,6 +31,10 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+    # api is on host network (not Compose DNS). Map hostname "api" → host gateway
+    # so nginx proxy_pass http://api:8000 still works.
+    extra_hosts:
+      - "api:host-gateway"
     # Localhost only: let Baota Nginx publish :80 and reverse-proxy here.
     ports:
       - "127.0.0.1:8080:80"
