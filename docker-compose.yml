@@ -10,6 +10,9 @@ services:
       TEXT_API_KEY: ${TEXT_API_KEY:-}
       FAL_KEY: ${FAL_KEY:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      DATABASE_URL: ${DATABASE_URL:-}
+      JWT_SECRET: ${JWT_SECRET:-}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-10080}
     expose:
       - "8000"
 

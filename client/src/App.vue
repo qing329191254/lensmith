@@ -6,6 +6,7 @@ import LocaleSwitch from "@/components/LocaleSwitch.vue"
 import UserMenu from "@/components/UserMenu.vue"
 import BrandLogo from "@/components/BrandLogo.vue"
 import ApiKeyBanner from "@/components/ApiKeyBanner.vue"
+import AppToast from "@/components/AppToast.vue"
 
 const { t } = useI18n()
 const route = useRoute()
@@ -125,6 +126,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey))
       <RouterView />
     </main>
     <ApiKeyBanner />
+    <AppToast />
   </div>
 </template>
 

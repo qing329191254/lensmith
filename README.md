@@ -100,3 +100,5 @@ See [server/.env.example](server/.env.example):
 ## Deploy (Docker + CI)
 
 Cloud VPS + Baota reverse proxy + GitHub Actions (GHCR + self-hosted runner): see [deploy/README.md](deploy/README.md).
+
+Auth / MySQL: set `DATABASE_URL` and `JWT_SECRET` in `server/.env`, then `alembic upgrade head` (see [server/README.md](server/README.md)).

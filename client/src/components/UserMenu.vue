@@ -1,11 +1,29 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from "vue"
-import { RouterLink } from "vue-router"
+import { computed, onMounted, onUnmounted, ref, watch } from "vue"
+import { RouterLink, useRouter } from "vue-router"
 import { useI18n } from "vue-i18n"
+import { useAuthStore } from "@/stores/auth"
+import { useToastStore } from "@/stores/toast"
 
 const { t } = useI18n()
+const auth = useAuthStore()
+const toast = useToastStore()
+const router = useRouter()
 const open = ref(false)
 const root = ref<HTMLElement | null>(null)
+
+const initial = computed(() => {
+  const name = auth.user?.username?.trim()
+  if (!name) return "?"
+  return name.slice(0, 1).toUpperCase()
+})
+
+watch(
+  () => auth.isLoggedIn,
+  (loggedIn) => {
+    if (!loggedIn) open.value = false
+  },
+)
 
 function toggle() {
   open.value = !open.value
@@ -23,6 +41,16 @@ function onKey(e: KeyboardEvent) {
   if (e.key === "Escape") close()
 }
 
+function goLogin() {
+  router.push({ name: "login" })
+}
+
+function logout() {
+  auth.logout()
+  close()
+  toast.success(t("auth.toastLogoutSuccess"))
+}
+
 onMounted(() => {
   document.addEventListener("click", onDocClick)
   window.addEventListener("keydown", onKey)
@@ -35,7 +63,19 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="root" class="relative">
+  <!-- 未登录：只显示登录按钮 -->
+  <button
+    v-if="!auth.isLoggedIn"
+    type="button"
+    class="login-btn"
+    :aria-label="t('userMenu.login')"
+    @click="goLogin"
+  >
+    {{ t("userMenu.loginShort") }}
+  </button>
+
+  <!-- 已登录：头像 + 下拉菜单 -->
+  <div v-else ref="root" class="relative">
     <button
       type="button"
       class="avatar-btn"
@@ -43,20 +83,15 @@ onUnmounted(() => {
       :aria-label="t('userMenu.open')"
       @click.stop="toggle"
     >
-      <span class="avatar-mark">L</span>
+      <span class="avatar-mark">{{ initial }}</span>
     </button>
 
-    <div
-      v-if="open"
-      class="menu"
-      role="menu"
-      @click.stop
-    >
+    <div v-if="open" class="menu" role="menu" @click.stop>
       <div class="menu-head">
-        <div class="avatar-mark avatar-mark-lg">L</div>
+        <div class="avatar-mark avatar-mark-lg">{{ initial }}</div>
         <div class="min-w-0">
-          <p class="truncate text-sm font-medium text-[var(--text)]">{{ t("userMenu.guest") }}</p>
-          <p class="truncate text-xs text-[var(--muted)]">{{ t("userMenu.guestHint") }}</p>
+          <p class="truncate text-sm font-medium text-[var(--text)]">{{ auth.user?.username }}</p>
+          <p class="truncate text-xs text-[var(--muted)]">{{ t("userMenu.signedInHint") }}</p>
         </div>
       </div>
 
@@ -71,14 +106,37 @@ onUnmounted(() => {
       <RouterLink class="menu-item" to="/usage" role="menuitem" @click="close">
         {{ t("nav.usage") }}
       </RouterLink>
-      <button type="button" class="menu-item menu-item-muted" disabled>
-        {{ t("userMenu.accountSoon") }}
+
+      <div class="menu-sep" />
+
+      <button type="button" class="menu-item" role="menuitem" @click="logout">
+        {{ t("userMenu.logout") }}
       </button>
     </div>
   </div>
 </template>
 
 <style scoped>
+.login-btn {
+  display: inline-flex;
+  height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.55rem;
+  border: 1px solid var(--border);
+  background: rgba(232, 168, 124, 0.1);
+  padding: 0 0.85rem;
+  color: var(--accent);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.login-btn:hover {
+  border-color: rgba(232, 168, 124, 0.45);
+  background: rgba(232, 168, 124, 0.18);
+  color: var(--text);
+}
 .avatar-btn {
   display: inline-flex;
   height: 2.25rem;
@@ -154,10 +212,5 @@ onUnmounted(() => {
 }
 .menu-item:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.05);
-}
-.menu-item-muted {
-  color: var(--muted);
-  cursor: not-allowed;
-  opacity: 0.7;
 }
 </style>

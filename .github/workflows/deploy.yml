@@ -58,9 +58,12 @@ jobs:
     needs: build-and-push
     runs-on: self-hosted
     steps:
-      - name: Pull and restart
+      - name: Pull, migrate, and restart
         working-directory: /opt/lensmith
         run: |
           docker compose pull
           docker compose up -d --remove-orphans
+          # Create DB if missing, then apply Alembic migrations (no-op when already up to date)
+          docker compose exec -T api python scripts/ensure_db.py
+          docker compose exec -T api alembic upgrade head
           docker image prune -f

@@ -66,13 +66,15 @@ function maybePromptFromMessage(message: string) {
   useApiKeyPromptStore().show(kind)
 }
 
-/** 附带 API Key 与模型偏好请求头，供 FastAPI 中间件读取。 */
+/** 附带 API Key、模型偏好，以及登录 JWT（若有）。 */
 export function withAuth(init: RequestInit = {}): RequestInit {
   const keys = useApiKeysStore()
   const prefs = useModelPrefsStore()
   const headers = new Headers(init.headers || {})
   for (const [k, v] of Object.entries(keys.authHeaders())) headers.set(k, v)
   for (const [k, v] of Object.entries(prefs.modelHeaders())) headers.set(k, v)
+  const token = localStorage.getItem("lensmith-auth-token")
+  if (token) headers.set("Authorization", `Bearer ${token}`)
   return { ...init, headers }
 }
 

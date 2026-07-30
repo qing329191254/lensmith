@@ -22,6 +22,7 @@ from app.request_keys import (
 from app.routers import (
     ad_run,
     analyze_storyboard,
+    auth,
     check_api_key,
     enhance_prompt,
     enhance_text,
@@ -75,6 +76,7 @@ async def response_timing(request: Request, call_next):
 
 
 prefix = "/api/seq"
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(check_api_key.router, prefix=prefix, tags=["seq"])
 app.include_router(analyze_storyboard.router, prefix=prefix, tags=["seq"])
 app.include_router(enhance_text.router, prefix=prefix, tags=["seq"])
