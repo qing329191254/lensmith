@@ -34,13 +34,36 @@ export function mediaFetchUrl(url: string): string {
   return `/api/seq/fetch-media?url=${encodeURIComponent(url)}`
 }
 
+const mediaBlobCache = new Map<string, Promise<Blob>>()
+const MEDIA_BLOB_CACHE_MAX = 24
+
 export async function fetchMediaBlob(url: string): Promise<Blob> {
-  const res = await fetch(mediaFetchUrl(url))
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "")
-    throw new Error(detail || `Failed to fetch media (${res.status})`)
+  let pending = mediaBlobCache.get(url)
+  if (!pending) {
+    pending = (async () => {
+      const res = await fetch(mediaFetchUrl(url))
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "")
+        throw new Error(detail || `Failed to fetch media (${res.status})`)
+      }
+      return res.blob()
+    })()
+    mediaBlobCache.set(url, pending)
+    pending.catch(() => {
+      mediaBlobCache.delete(url)
+    })
+    if (mediaBlobCache.size > MEDIA_BLOB_CACHE_MAX) {
+      const oldest = mediaBlobCache.keys().next().value
+      if (oldest !== undefined) mediaBlobCache.delete(oldest)
+    }
   }
-  return res.blob()
+  return pending
+}
+
+/** Warm cache while user previews an image so copy/download feels instant. */
+export function prefetchMediaBlob(url: string | null | undefined) {
+  if (!url || url.startsWith("data:") || url.startsWith("blob:")) return
+  void fetchMediaBlob(url)
 }
 
 // --- 文本 / 视觉 -----------------------------------------------------------

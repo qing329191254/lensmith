@@ -66,10 +66,14 @@ async def fetch_media(url: str = Query(..., min_length=8, max_length=4096)) -> R
             content_type = "image/webp"
         else:
             raise HTTPException(status_code=400, detail="URL did not return an image or video")
-        return Response(content=body, media_type=content_type, headers={"Cache-Control": "private, max-age=300"})
+        return Response(
+            content=body,
+            media_type=content_type,
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
 
     return Response(
         content=upstream.content,
         media_type=content_type,
-        headers={"Cache-Control": "private, max-age=300"},
+        headers={"Cache-Control": "private, max-age=3600"},
     )

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue"
+import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import { useI18n } from "vue-i18n"
-import { ensureImageKey, fetchMediaBlob, generateImage, isRequestGateError } from "@/api/seq"
+import { ensureImageKey, fetchMediaBlob, generateImage, isRequestGateError, prefetchMediaBlob } from "@/api/seq"
 import FullscreenViewer from "@/components/images/FullscreenViewer.vue"
 import ImageUploadSlot from "@/components/images/ImageUploadSlot.vue"
 import { formatApiError } from "@/lib/provider-errors"
@@ -85,9 +85,7 @@ async function useAsInput() {
   }
 }
 
-async function imageUrlToPngBlob(url: string): Promise<Blob> {
-  // Remote CDNs (e.g. Volcengine TOS) block browser CORS — go through same-origin proxy.
-  const blob = await fetchMediaBlob(url)
+async function blobToPng(blob: Blob): Promise<Blob> {
   if (blob.type === "image/png") return blob
   const bmp = await createImageBitmap(blob)
   const canvas = document.createElement("canvas")
@@ -108,13 +106,22 @@ async function copyToClipboard() {
     return
   }
   try {
-    const blob = await imageUrlToPngBlob(resultUrl.value)
-    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })])
+    const blob = await fetchMediaBlob(resultUrl.value)
+    const type = blob.type.startsWith("image/") ? blob.type : "image/png"
+    try {
+      // Prefer original bytes (jpeg/webp) — avoids slow canvas PNG re-encode.
+      await navigator.clipboard.write([new ClipboardItem({ [type]: blob })])
+    } catch {
+      const png = await blobToPng(blob)
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": png })])
+    }
     showToast(t("images.copied"))
   } catch {
     showToast(t("images.copyFailed"))
   }
 }
+
+watch(resultUrl, (url) => prefetchMediaBlob(url))
 
 async function downloadResult() {
   if (!resultUrl.value) return
