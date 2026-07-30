@@ -3,7 +3,8 @@
 Wizard steps (match StoryboardView):
   生成(prompt) → 转场(transition) → 精修(process) → 筛选(selection) → 成片(result)
 
-AI nodes run automatically; human gates pause via interrupt().
+AI nodes run when requested; human gates pause via interrupt().
+Skip/run transition both land on process gate — AI panel extract is opt-in.
 """
 
 from __future__ import annotations
@@ -166,12 +167,18 @@ async def node_enhance_text(state: StoryboardState) -> dict[str, Any]:
 
 
 async def node_generate_master(state: StoryboardState) -> dict[str, Any]:
+    max_panels = int(_opts(state).get("max_panels") or 12)
+    default_panels = max(1, min(max_panels, int(_opts(state).get("max_panels") or 6)))
+
     if state.get("master_url"):
         try:
-            panel_count, description, usage = await gateway.analyze_storyboard(state["master_url"])
-            max_panels = int(_opts(state).get("max_panels") or 12)
+            panel_count, description, usage = await gateway.analyze_storyboard_or_default(
+                state["master_url"],
+                default_panel_count=default_panels,
+                max_panels=max_panels,
+            )
             return {
-                "panel_count": max(1, min(max_panels, panel_count)),
+                "panel_count": panel_count,
                 "analysis": description or "",
                 "phase": "master_ready",
                 "step": "prompt",
@@ -184,18 +191,21 @@ async def node_generate_master(state: StoryboardState) -> dict[str, Any]:
     full_prompt = f"{MASTER_SYSTEM_PROMPT}\n\nUser Request: {state['working_prompt']}"
     try:
         url, description, usage = await gateway.generate_image_text_to_image(full_prompt, aspect)
-        panel_count, analysis, usage2 = await gateway.analyze_storyboard(url)
-        max_panels = int(_opts(state).get("max_panels") or 12)
+        panel_count, analysis, usage2 = await gateway.analyze_storyboard_or_default(
+            url,
+            default_panel_count=default_panels,
+            max_panels=max_panels,
+        )
         return {
             "master_url": url,
             "analysis": analysis or description or "",
-            "panel_count": max(1, min(max_panels, panel_count)),
+            "panel_count": panel_count,
             "phase": "master_ready",
             "step": "prompt",
             "usage": _merge_usage(usage, usage2),
         }
     except Exception as exc:
-        return {"errors": [f"generate_master failed: {exc}"], "phase": "failed", "step": "prompt"}
+        return {"errors": [str(exc)], "phase": "failed", "step": "prompt"}
 
 
 async def node_await_master_review(state: StoryboardState) -> dict[str, Any]:
@@ -277,15 +287,17 @@ async def node_generate_transition(state: StoryboardState) -> dict[str, Any]:
     )
     try:
         # Image editing with master as reference keeps style consistent.
-        url, _, usage = await gateway.generate_image_editing(full_prompt, "16:9", master, None)
-        count, _, usage2 = await gateway.analyze_storyboard(url)
+        url, _, _, usage = await gateway.generate_image_editing(full_prompt, "16:9", master, None)
+        count, _, usage2 = await gateway.analyze_storyboard_or_default(
+            url, default_panel_count=4, max_panels=8
+        )
         count = max(1, min(8, count))
         panels: list[str] = []
         errors: list[str] = []
         usage_acc = _merge_usage(usage, usage2)
         for index in range(count):
             try:
-                panel_url, _, panel_usage = await gateway.generate_image_editing(
+                panel_url, _, _, panel_usage = await gateway.generate_image_editing(
                     _extraction_prompt(index, columns=2, kind="transition"),
                     "16:9",
                     url,
@@ -308,22 +320,67 @@ async def node_generate_transition(state: StoryboardState) -> dict[str, Any]:
             "phase": "transition_skipped",
             "step": "process",
             "transition_panels": [],
-            "errors": [f"transition generate failed: {exc}"],
+            "errors": [str(exc)],
         }
+
+
+async def node_await_process(state: StoryboardState) -> dict[str, Any]:
+    """Human gate: run AI panel extract, or submit locally extracted / demo panels."""
+    decision = interrupt(
+        {
+            "type": "process_panels",
+            "step": "process",
+            "message": "Extract panels with AI, load demo panels, or continue with your own cuts.",
+            "masterUrl": state.get("master_url"),
+            "panelCount": state.get("panel_count"),
+            "transitionPanels": state.get("transition_panels") or [],
+            "processedPanels": state.get("processed_panels") or [],
+        }
+    )
+    if not isinstance(decision, dict):
+        return {"phase": "process_await", "step": "process"}
+
+    action = decision.get("action") or "submit_processed"
+    if action == "run_process":
+        return {"phase": "process_requested", "step": "process", "waiting_for": ""}
+
+    raw = decision.get("panels") or []
+    panels: list[str] = []
+    for item in raw:
+        if isinstance(item, str) and item.strip():
+            panels.append(item.strip())
+        elif isinstance(item, dict):
+            url = str(item.get("imageUrl") or item.get("image_url") or "").strip()
+            if url:
+                panels.append(url)
+
+    if not panels:
+        return {
+            "phase": "process_await",
+            "step": "process",
+            "errors": ["Provide at least one processed panel, or run AI extract"],
+        }
+
+    return {
+        "processed_panels": panels,
+        "phase": "process_ready",
+        "step": "selection",
+        "waiting_for": "",
+    }
 
 
 async def node_process_panels(state: StoryboardState) -> dict[str, Any]:
     master = state.get("master_url") or ""
     count = int(state.get("panel_count") or 0)
     if not master or count <= 0:
-        return {"errors": ["Cannot process panels without master/count"], "phase": "failed", "step": "process"}
+        return {"errors": ["Cannot process panels without master/count"], "phase": "process_failed", "step": "process"}
 
     panels: list[str] = []
     errors: list[str] = []
     usage_acc: dict[str, int] = {}
     for index in range(count):
         try:
-            url, _, usage = await gateway.generate_image_editing(
+            url, _, _, usage = await gateway.generate_image_editing(
                 _extraction_prompt(index, columns=3, kind="main"),
                 "16:9",
                 master,
@@ -332,13 +389,23 @@ async def node_process_panels(state: StoryboardState) -> dict[str, Any]:
             panels.append(url)
             usage_acc = _merge_usage(usage_acc, usage)
         except Exception as exc:
-            errors.append(f"panel[{index}] process failed: {exc}")
+            errors.append(str(exc))
+            break
+
+    if panels:
+        return {
+            "processed_panels": panels,
+            "phase": "process_ready",
+            "step": "selection",
+            "errors": errors,
+            "usage": usage_acc,
+        }
 
     return {
-        "processed_panels": panels,
-        "phase": "process_ready" if panels else "failed",
-        "step": "selection",
-        "errors": errors,
+        "processed_panels": [],
+        "phase": "process_failed",
+        "step": "process",
+        "errors": errors or ["Panel extraction produced no images"],
         "usage": usage_acc,
     }
 
@@ -478,10 +545,25 @@ def _after_master_review(state: StoryboardState) -> Literal["generate_master", "
     return "await_transition_input"
 
 
-def _after_transition_input(state: StoryboardState) -> Literal["generate_transition", "process_panels"]:
+def _after_transition_input(state: StoryboardState) -> Literal["generate_transition", "await_process"]:
     if state.get("phase") == "transition_requested":
         return "generate_transition"
-    return "process_panels"
+    return "await_process"
+
+
+def _after_await_process(state: StoryboardState) -> Literal["process_panels", "await_selection", "await_process"]:
+    phase = state.get("phase") or ""
+    if phase == "process_requested":
+        return "process_panels"
+    if phase == "process_ready" and (state.get("processed_panels") or []):
+        return "await_selection"
+    return "await_process"
+
+
+def _after_process_panels(state: StoryboardState) -> Literal["await_selection", "await_process"]:
+    if state.get("phase") == "process_ready" and (state.get("processed_panels") or []):
+        return "await_selection"
+    return "await_process"
 
 
 def _after_produce_gate(state: StoryboardState) -> Literal["produce", "__end__"]:
@@ -499,6 +581,7 @@ def build_storyboard_graph():
     graph.add_node("await_master_review", node_await_master_review)
     graph.add_node("await_transition_input", node_await_transition_input)
     graph.add_node("generate_transition", node_generate_transition)
+    graph.add_node("await_process", node_await_process)
     graph.add_node("process_panels", node_process_panels)
     graph.add_node("await_selection", node_await_selection)
     graph.add_node("await_produce", node_await_produce)
@@ -522,11 +605,27 @@ def build_storyboard_graph():
         _after_transition_input,
         {
             "generate_transition": "generate_transition",
-            "process_panels": "process_panels",
+            "await_process": "await_process",
         },
     )
-    graph.add_edge("generate_transition", "process_panels")
-    graph.add_edge("process_panels", "await_selection")
+    graph.add_edge("generate_transition", "await_process")
+    graph.add_conditional_edges(
+        "await_process",
+        _after_await_process,
+        {
+            "process_panels": "process_panels",
+            "await_selection": "await_selection",
+            "await_process": "await_process",
+        },
+    )
+    graph.add_conditional_edges(
+        "process_panels",
+        _after_process_panels,
+        {
+            "await_selection": "await_selection",
+            "await_process": "await_process",
+        },
+    )
     graph.add_edge("await_selection", "await_produce")
     graph.add_conditional_edges(
         "await_produce",
@@ -613,8 +712,10 @@ async def _run_until_pause(thread_id: str, payload: Any) -> dict[str, Any]:
                     break
 
     waiting = (inter or interrupt_payload or {}).get("type") if isinstance(inter or interrupt_payload, dict) else ""
-    status = "interrupted" if (inter or interrupt_payload or (snap and snap.next)) else "completed"
-    if values.get("phase") == "failed":
+    interrupted = bool(inter or interrupt_payload or (snap and snap.next))
+    status = "interrupted" if interrupted else "completed"
+    # Only surface failed when the graph is not paused for human input.
+    if values.get("phase") == "failed" and not interrupted:
         status = "failed"
 
     return {
@@ -686,8 +787,9 @@ async def get_storyboard_session(thread_id: str) -> dict[str, Any]:
                     break
 
     values = dict(snap.values)
-    status = "interrupted" if (inter or snap.next) else "completed"
-    if values.get("phase") == "failed":
+    interrupted = bool(inter or snap.next)
+    status = "interrupted" if interrupted else "completed"
+    if values.get("phase") == "failed" and not interrupted:
         status = "failed"
 
     return {
@@ -728,6 +830,8 @@ async def run_storyboard_pipeline(prompt: str, *, options: StoryboardOptions | N
             decision = {"action": "approve_master"}
         elif waiting == "transition_input":
             decision = {"action": "skip_transition"}
+        elif waiting == "process_panels":
+            decision = {"action": "run_process"}
         elif waiting == "select_panels":
             panels = (current.get("state") or {}).get("processedPanels") or []
             decision = {

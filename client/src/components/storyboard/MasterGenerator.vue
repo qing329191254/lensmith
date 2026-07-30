@@ -35,6 +35,7 @@ const generatedUrl = ref<string | null>(null)
 const analyzedCount = ref<number | null>(null)
 const isEditingCount = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const isDragOver = ref(false)
 
 const MASTER_SYSTEM_PROMPT =
   "You are a professional storyboard artist creating a source image for a video generation pipeline. " +
@@ -75,7 +76,8 @@ async function analyzeImage(url: string) {
   isAnalyzing.value = true
   isEditingCount.value = false
   try {
-    const data = await analyzeStoryboard(url)
+    // Soft: uploading a local master must not force API-key setup.
+    const data = await analyzeStoryboard(url, { soft: true })
     if (data.panelCount) analyzedCount.value = data.panelCount
   } catch {
     analyzedCount.value = 6
@@ -113,9 +115,8 @@ async function handleGenerate() {
   }
 }
 
-function handleFileUpload(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
-  if (!file) return
+function readMasterFile(file: File) {
+  if (!file.type.startsWith("image/")) return
   const reader = new FileReader()
   reader.onload = (event) => {
     const result = event.target?.result as string
@@ -124,6 +125,28 @@ function handleFileUpload(e: Event) {
     analyzeImage(result)
   }
   reader.readAsDataURL(file)
+}
+
+function handleFileUpload(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (file) readMasterFile(file)
+  ;(e.target as HTMLInputElement).value = ""
+}
+
+function onDrop(e: DragEvent) {
+  e.preventDefault()
+  isDragOver.value = false
+  const file = e.dataTransfer?.files?.[0]
+  if (file) readMasterFile(file)
+}
+
+function onDragOver(e: DragEvent) {
+  e.preventDefault()
+  isDragOver.value = true
+}
+
+function onDragLeave() {
+  isDragOver.value = false
 }
 
 function handleApprove() {
@@ -201,8 +224,20 @@ function handleReset() {
 
         <div v-else class="space-y-6">
           <div
-            class="cursor-pointer rounded-xl border-2 border-dashed border-[var(--border)] p-10 text-center transition hover:border-[var(--accent)] hover:bg-[var(--surface)]"
+            class="cursor-pointer rounded-xl border-2 border-dashed p-10 text-center transition"
+            :class="
+              isDragOver
+                ? 'border-[var(--accent)] bg-[rgba(232,168,124,0.08)]'
+                : 'border-[var(--border)] hover:border-[var(--accent)] hover:bg-[var(--surface)]'
+            "
+            role="button"
+            tabindex="0"
             @click="fileInputRef?.click()"
+            @keydown.enter.prevent="fileInputRef?.click()"
+            @keydown.space.prevent="fileInputRef?.click()"
+            @drop="onDrop"
+            @dragover="onDragOver"
+            @dragleave="onDragLeave"
           >
             <input ref="fileInputRef" type="file" accept="image/*" class="hidden" @change="handleFileUpload" />
             <p class="text-lg font-medium">{{ t("storyboard.master.uploadTitle") }}</p>

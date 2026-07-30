@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from "vue"
+import { computed, ref, watch } from "vue"
 import { useI18n } from "vue-i18n"
 import { DEMO_STORYBOARD } from "@/lib/demo-data"
 import { extractPanelFromGrid } from "@/lib/panel-extraction"
@@ -22,6 +22,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   complete: [panels: string[]]
+  runExtract: []
 }>()
 
 const { t } = useI18n()
@@ -32,6 +33,15 @@ const progress = ref(0)
 const regenerating = ref<number[]>([])
 const processing = ref(false)
 const toast = ref("")
+const localError = ref("")
+
+const gridColumns = computed<"2" | "3">(() => (props.panelCount <= 4 ? "2" : "3"))
+
+const showStartActions = computed(
+  () => !props.busy && !processing.value && panels.value.length === 0 && status.value !== "processing",
+)
+
+const showContinue = computed(() => !props.busy && !processing.value && panels.value.length > 0)
 
 watch(
   () => [props.orchestrated, props.busy, props.externalPanels] as const,
@@ -46,24 +56,37 @@ watch(
       panels.value = [...external]
       progress.value = 100
       status.value = "complete"
+      localError.value = ""
+    } else if (!processing.value && panels.value.length === 0) {
+      status.value = "ready"
     }
   },
   { immediate: true, deep: true },
 )
 
 async function processPanels() {
-  if (processing.value) return
+  if (processing.value || props.busy) return
+
+  // Orchestrated HITL: server runs AI extract only when the user asks.
+  if (props.orchestrated) {
+    emit("runExtract")
+    return
+  }
+
   processing.value = true
   status.value = "processing"
   panels.value = []
   progress.value = 0
+  localError.value = ""
+  toast.value = ""
 
   try {
     const extracted: string[] = []
+    const columns = Number(gridColumns.value) as 2 | 3
 
     for (let i = 0; i < props.panelCount; i++) {
       const url = await extractPanelFromGrid(i, props.masterUrl, {
-        columns: 3,
+        columns,
         kind: "main",
         uploadToBlob: props.storageMode === "persistent",
       })
@@ -74,7 +97,14 @@ async function processPanels() {
       progress.value = ((i + 1) / props.panelCount) * 100
     }
 
+    if (!extracted.length) {
+      status.value = "ready"
+      localError.value = t("storyboard.process.errEmpty")
+      return
+    }
+
     status.value = "complete"
+    progress.value = 100
 
     if (props.storageMode === "temporal") {
       const dataUriCount = panels.value.filter((url) => url.startsWith("data:")).length
@@ -83,22 +113,35 @@ async function processPanels() {
       const httpUrlCount = panels.value.filter((url) => url.startsWith("http")).length
       toast.value = t("storyboard.process.toastSaved", { count: httpUrlCount })
     }
-
-    emit("complete", panels.value)
   } catch (e) {
     if (isRequestGateError(e)) return
     console.error("Processing error:", e)
     status.value = "ready"
+    localError.value = t("storyboard.process.errEmpty")
   } finally {
     processing.value = false
   }
 }
 
+function continueWithPanels() {
+  if (!panels.value.length) return
+  emit("complete", [...panels.value])
+}
+
+function useMasterAndContinue() {
+  panels.value = [props.masterUrl]
+  progress.value = 100
+  status.value = "complete"
+  localError.value = ""
+  emit("complete", [props.masterUrl])
+}
+
 async function regeneratePanel(index: number) {
   regenerating.value = [...regenerating.value, index]
   try {
+    const columns = Number(gridColumns.value) as 2 | 3
     const url = await extractPanelFromGrid(index, props.masterUrl, {
-      columns: 3,
+      columns,
       kind: "main",
       uploadToBlob: props.storageMode === "persistent",
     })
@@ -117,8 +160,8 @@ function loadDemoPanels() {
   panels.value = demoPanelUrls
   progress.value = 100
   status.value = "complete"
+  localError.value = ""
   toast.value = t("storyboard.process.demoLoaded", { count: demoPanelUrls.length })
-  emit("complete", demoPanelUrls)
 }
 </script>
 
@@ -135,8 +178,17 @@ function loadDemoPanels() {
     <p v-if="toast" class="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-200">
       {{ toast }}
     </p>
+    <p v-if="localError" class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-100">
+      {{ localError }}
+    </p>
+    <p
+      v-if="showStartActions && orchestrated"
+      class="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-center text-sm text-[var(--muted)]"
+    >
+      {{ t("storyboard.process.emptyHint") }}
+    </p>
 
-    <div v-if="status === 'ready' && !orchestrated" class="mb-8 flex justify-center gap-3">
+    <div v-if="showStartActions" class="mb-4 flex flex-wrap justify-center gap-3">
       <button
         type="button"
         class="rounded-lg bg-[var(--accent)] px-6 py-3 font-medium text-[#1a120c]"
@@ -147,14 +199,38 @@ function loadDemoPanels() {
       <button
         type="button"
         class="rounded-lg border border-[var(--border)] px-6 py-3 hover:bg-[var(--surface)]"
+        @click="useMasterAndContinue"
+      >
+        {{ t("storyboard.process.useMaster") }}
+      </button>
+      <button
+        type="button"
+        class="rounded-lg border border-[var(--border)] px-6 py-3 hover:bg-[var(--surface)]"
         @click="loadDemoPanels"
       >
         ✦ {{ t("storyboard.process.useDemo") }}
       </button>
     </div>
 
+    <div v-if="showContinue" class="mb-4 flex flex-wrap justify-center gap-3">
+      <button
+        type="button"
+        class="rounded-lg bg-[var(--accent)] px-6 py-3 font-medium text-[#1a120c]"
+        @click="continueWithPanels"
+      >
+        → {{ t("storyboard.process.continueSelect") }}
+      </button>
+      <button
+        type="button"
+        class="rounded-lg border border-[var(--border)] px-6 py-3 hover:bg-[var(--surface)]"
+        @click="processPanels"
+      >
+        ↻ {{ t("storyboard.process.start") }}
+      </button>
+    </div>
+
     <p
-      v-if="orchestrated && busy"
+      v-if="(orchestrated && busy) || processing"
       class="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-center text-sm text-[var(--muted)]"
     >
       {{ t("storyboard.hitl.processWorking") }}
@@ -178,7 +254,7 @@ function loadDemoPanels() {
             <span class="text-[var(--muted)]">{{ t("storyboard.status") }}</span>
             <span class="font-medium capitalize">
               {{
-                status === "processing"
+                status === "processing" || processing || busy
                   ? t("storyboard.process.extracting", { current: panels.length + 1, total: panelCount })
                   : status
               }}
@@ -218,7 +294,10 @@ function loadDemoPanels() {
                 {{ regenerating.includes(i) ? "…" : "↻" }}
               </button>
             </div>
-            <div v-if="status === 'processing' && i === panels.length" class="absolute inset-0 animate-pulse bg-white/10" />
+            <div
+              v-if="(status === 'processing' || processing) && i === panels.length"
+              class="absolute inset-0 animate-pulse bg-white/10"
+            />
           </div>
         </div>
       </div>

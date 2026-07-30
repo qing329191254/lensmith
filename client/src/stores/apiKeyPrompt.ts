@@ -7,19 +7,16 @@ export const useApiKeyPromptStore = defineStore("apiKeyPrompt", () => {
   const visible = ref(false)
   const kind = ref<ApiKeyKind>("gateway")
 
-  const titleKey = computed(() => {
-    if (kind.value === "fal") return "apiKeyPrompt.falTitle"
-    if (kind.value === "text") return "apiKeyPrompt.textTitle"
-    return "apiKeyPrompt.gatewayTitle"
-  })
-  const bodyKey = computed(() => {
-    if (kind.value === "fal") return "apiKeyPrompt.falBody"
-    if (kind.value === "text") return "apiKeyPrompt.textBody"
-    return "apiKeyPrompt.gatewayBody"
-  })
+  const titleKey = computed(() =>
+    kind.value === "fal" ? "apiKeyPrompt.falTitle" : "apiKeyPrompt.gatewayTitle",
+  )
+  const bodyKey = computed(() =>
+    kind.value === "fal" ? "apiKeyPrompt.falBody" : "apiKeyPrompt.gatewayBody",
+  )
 
   function show(next: ApiKeyKind = "gateway") {
-    kind.value = next
+    // Separate text key is retired in UI — treat as image key.
+    kind.value = next === "text" ? "gateway" : next
     visible.value = true
   }
 

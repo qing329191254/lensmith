@@ -5,9 +5,9 @@ import { pushWorkspaceSettings } from "@/lib/push-settings"
 const STORAGE_KEY = "lensmith-api-keys"
 
 export interface ApiKeysState {
-  /** Cheaper text-only providers (DeepSeek etc.). Falls back to aiGatewayKey if empty. */
+  /** Cheaper text-only providers (legacy). UI no longer collects this; falls back to aiGatewayKey. */
   textApiKey: string
-  /** Image / multimodal / Gateway-compatible key */
+  /** Primary API key: image / multimodal / prompt enhance / Gateway-compatible */
   aiGatewayKey: string
   falKey: string
 }

@@ -27,6 +27,9 @@ build/
 .next/
 out/
 
+# FFmpeg wasm copied by client/scripts/copy-ffmpeg.mjs (large)
+client/public/ffmpeg/
+
 # Logs / debug
 logs/
 *.log

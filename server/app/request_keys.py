@@ -21,6 +21,8 @@ DEFAULT_IMAGE_MODEL = "google/gemini-3-pro-image"
 DEFAULT_VISION_MODEL = "google/gemini-3-pro-image"
 DEFAULT_VIDEO_MODEL = "veo3-fast"
 DEFAULT_DEEPSEEK_BASE = "https://api.deepseek.com"
+# Zhipu vision (same key as CogView). Flash is widely available on personal keys.
+COMPATIBLE_VISION_MODEL = "glm-4v-flash"
 
 _ai_gateway_key: ContextVar[str] = ContextVar("ai_gateway_key", default="")
 _text_api_key: ContextVar[str] = ContextVar("text_api_key", default="")
@@ -135,6 +137,9 @@ def resolve_image_model(override: str | None = None) -> str:
 def resolve_vision_model(override: str | None = None) -> str:
     if (override or "").strip():
         return override.strip()
+    # CogView image model → use Zhipu vision with the same key (not Gemini).
+    if image_provider() == "compatible":
+        return COMPATIBLE_VISION_MODEL
     image = resolve_image_model()
     if _is_multimodal_chat(image):
         return image
@@ -142,6 +147,22 @@ def resolve_vision_model(override: str | None = None) -> str:
     if _is_multimodal_chat(text):
         return text
     return DEFAULT_VISION_MODEL
+
+
+def uses_compatible_chat(model: str | None = None) -> bool:
+    """Chat should hit OpenAI-compatible domestic base (Zhipu) for this model."""
+    mid = (model or "").strip().lower()
+    if not mid and image_provider() == "compatible":
+        return True
+    if image_provider() == "compatible" and (
+        "glm-4v" in mid or mid.startswith("glm-4") or mid.startswith("cogview")
+    ):
+        return True
+    if mid.startswith("zhipu/") or mid.startswith("zai/"):
+        return True
+    if "glm-4v" in mid or mid == "glm-4v" or mid.startswith("glm-4v-"):
+        return True
+    return False
 
 
 def _is_multimodal_chat(model: str) -> bool:
@@ -173,11 +194,46 @@ def image_provider(model: str | None = None) -> str:
     mid = resolve_image_model(model).lower()
     if mid.startswith("openai/") or mid.startswith("gpt-image"):
         return "openai"
+    # Volcengine Ark / 即梦同源 Seedream（单 API Key）
+    if (
+        mid.startswith("doubao-seedream")
+        or mid.startswith("jimeng")
+        or mid in ("seedream", "jimeng-seedream")
+        or "seedream" in mid
+    ):
+        return "ark"
     if (
         mid.startswith("zhipu/")
         or mid.startswith("zai/")
+        or mid.startswith("siliconflow/")
         or "cogview" in mid
         or mid.startswith("glm-image")
+        or "kolors" in mid
+        or "flux" in mid
+        or mid.startswith("black-forest-labs/")
+        or mid.startswith("kwai-kolors/")
+        or mid.startswith("qwen/qwen-image")
     ):
         return "compatible"
+    # 中转站 / 硅基等：非 Gemini 模型走 OpenAI 风格 /images/generations
+    custom = _gateway_base_url.get().strip()
+    if custom and "gemini" not in mid and not mid.startswith("google/"):
+        return "compatible"
     return "google"
+
+
+def supports_image_vision(model: str | None = None) -> bool:
+    """Vision is available: Gemini path, or Zhipu glm-4v with the same CogView key."""
+    return True
+
+
+def supports_image_editing(model: str | None = None) -> bool:
+    """Editing is available natively (Gemini) or approx (Zhipu: describe + CogView)."""
+    return True
+
+
+def strip_compatible_model_id(model: str) -> str:
+    mid = (model or "").strip()
+    if "/" in mid:
+        mid = mid.split("/", 1)[1]
+    return mid or COMPATIBLE_VISION_MODEL

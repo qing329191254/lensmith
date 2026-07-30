@@ -30,7 +30,6 @@ const sources: { id: "all" | AssetSource; labelKey: string }[] = [
   { id: "all", labelKey: "library.sourceAll" },
   { id: "image-playground", labelKey: "library.sourceImages" },
   { id: "storyboard", labelKey: "library.sourceStoryboard" },
-  { id: "ads", labelKey: "library.sourceAds" },
 ]
 
 function formatTime(ts: number) {
@@ -130,9 +129,6 @@ async function copyUrl(url: string) {
         <RouterLink to="/storyboard" class="rounded-lg border border-[var(--border)] px-4 py-2 text-sm">
           {{ t("nav.storyboard") }}
         </RouterLink>
-        <RouterLink to="/ads" class="rounded-lg border border-[var(--border)] px-4 py-2 text-sm">
-          {{ t("nav.ads") }}
-        </RouterLink>
       </div>
     </div>
 
@@ -150,6 +146,7 @@ async function copyUrl(url: string) {
           :alt="item.prompt || t('library.imageAlt')"
           class="h-full w-full object-cover"
           loading="lazy"
+          decoding="async"
         />
         <template v-else>
           <img
@@ -158,6 +155,7 @@ async function copyUrl(url: string) {
             alt=""
             class="h-full w-full object-cover opacity-90"
             loading="lazy"
+            decoding="async"
           />
           <video
             v-else

@@ -64,7 +64,9 @@ function applySession(res: StoryboardSessionResponse) {
   waitingFor.value = res.waitingFor || ""
   const s = res.state
   const errors = s.errors || []
-  graphError.value = errors.length ? errors.join(" · ") : ""
+  graphError.value = errors.length
+    ? formatApiError(new Error(errors.map((e) => String(e)).join(" · ")), t)
+    : ""
 
   if (s.masterUrl) {
     store.masterData = {
@@ -101,8 +103,50 @@ function applySession(res: StoryboardSessionResponse) {
   }
 }
 
+/**
+ * Server graph threads are in-memory. After refresh / restart, local UI can still
+ * be on transition+ while threadId is null — recreate from master and advance.
+ */
+async function ensureStoryboardThread() {
+  if (store.threadId) return
+
+  const master = store.masterData
+  if (!master?.url) {
+    throw new Error(t("storyboard.errors.sessionExpired"))
+  }
+
+  const started = await startStoryboardSession({
+    prompt: master.prompt || "Uploaded Storyboard Master",
+    masterUrl: master.url,
+    options: { aspectRatio: "3:2", maxPanels: master.panelCount || 6 },
+  })
+  applySession(started)
+
+  if (waitingFor.value === "review_master" && store.threadId) {
+    const approved = await resumeStoryboardSession(store.threadId, {
+      action: "approve_master",
+      panelCount: master.panelCount || 6,
+    })
+    applySession(approved)
+  }
+}
+
 async function resume(action: string, extra: Record<string, unknown> = {}) {
-  if (!store.threadId) throw new Error("Missing storyboard session")
+  await ensureStoryboardThread()
+  if (!store.threadId) throw new Error(t("storyboard.errors.sessionExpired"))
+
+  // Fresh recreate pauses at transition_input; later actions need to skip first.
+  const pastTransition = [
+    "submit_processed",
+    "submit_selection",
+    "produce_videos",
+    "skip_videos",
+  ].includes(action)
+  if (pastTransition && waitingFor.value === "transition_input") {
+    const skipped = await resumeStoryboardSession(store.threadId, { action: "skip_transition" })
+    applySession(skipped)
+  }
+
   return resumeStoryboardSession(store.threadId, { action, ...extra })
 }
 
@@ -172,7 +216,6 @@ async function handleMasterApproved(url: string, prompt: string, panelCount: num
 async function continueAfterTransition(decision: { action: string; transitionPrompt?: string }) {
   graphBusy.value = true
   graphError.value = ""
-  store.step = "process"
   try {
     const res = await resume(decision.action, {
       transitionPrompt: decision.transitionPrompt,
@@ -182,13 +225,66 @@ async function continueAfterTransition(decision: { action: string; transitionPro
       store.step = "transition"
       return
     }
-    // Graph ran transition (optional) + process; now waiting for human selection.
+    // Skip/run transition pause at process gate — do not auto-extract with AI.
+    if (res.waitingFor === "process_panels" || store.processedPanels.length === 0) {
+      store.step = "process"
+      return
+    }
     store.step = "selection"
   } catch (e) {
     if (isRequestGateError(e)) return
     console.error(e)
     graphError.value = formatApiError(e, t)
     store.step = "transition"
+  } finally {
+    graphBusy.value = false
+  }
+}
+
+async function handleProcessComplete(panels: string[]) {
+  store.processedPanels = panels
+  if (!store.threadId || waitingFor.value !== "process_panels") {
+    store.step = "selection"
+    return
+  }
+
+  graphBusy.value = true
+  graphError.value = ""
+  try {
+    const res = await resume("submit_processed", { panels })
+    applySession(res)
+    if (store.processedPanels.length > 0 || res.waitingFor === "select_panels") {
+      store.step = "selection"
+    } else {
+      store.step = "process"
+    }
+  } catch (e) {
+    if (isRequestGateError(e)) return
+    console.error(e)
+    graphError.value = formatApiError(e, t)
+    store.step = "selection"
+  } finally {
+    graphBusy.value = false
+  }
+}
+
+async function handleProcessRunExtract() {
+  if (!store.threadId || waitingFor.value !== "process_panels") return
+  graphBusy.value = true
+  graphError.value = ""
+  try {
+    const res = await resume("run_process")
+    applySession(res)
+    if (store.processedPanels.length > 0) {
+      store.step = "selection"
+    } else {
+      store.step = "process"
+    }
+  } catch (e) {
+    if (isRequestGateError(e)) return
+    console.error(e)
+    graphError.value = formatApiError(e, t)
+    store.step = "process"
   } finally {
     graphBusy.value = false
   }
@@ -458,6 +554,8 @@ function resetAll() {
       :master-prompt="store.masterData.prompt"
       :panel-count="store.masterData.panelCount"
       :storage-mode="store.storageMode"
+      @complete="handleProcessComplete"
+      @run-extract="handleProcessRunExtract"
     />
 
     <PanelSelector

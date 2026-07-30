@@ -41,6 +41,11 @@ const { snapIndicator, handleMouseDownClip } = useTimelineDrag({
   zoomLevel: () => zoomLevel.value,
   snapEnabled: () => snapEnabled.value,
   getSnapTime: (time, ignore) => store.getSnapTime(time, ignore),
+  getMediaDuration: (clipId) => {
+    const clip = timelineClips.value.find((c) => c.id === clipId)
+    if (!clip) return null
+    return mediaMap.value[clip.mediaId]?.duration ?? null
+  },
   onClipUpdate: (id, changes) => store.updateClip(id, changes),
   onSelectClips: (ids) => store.selectClips(ids),
   onDragStart: () => {
@@ -129,6 +134,10 @@ function deleteSelected() {
   if (selectedClipIds.value.length) store.deleteClips([...selectedClipIds.value])
 }
 
+function splitSelected() {
+  store.splitAtPlayhead()
+}
+
 function onKeyDown(e: KeyboardEvent) {
   if ((e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA") return
   if (e.code === "Space") {
@@ -142,6 +151,10 @@ function onKeyDown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.shiftKey && e.key === "z"))) {
     e.preventDefault()
     store.redo()
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+    e.preventDefault()
+    splitSelected()
   }
   if (e.key === "Delete" || e.key === "Backspace") {
     deleteSelected()
@@ -168,7 +181,10 @@ onUnmounted(() => {
       <span class="sep" />
       <button type="button" class="tool-btn" :disabled="!history.length" @click="store.undo()">{{ t("timeline.undo") }}</button>
       <button type="button" class="tool-btn" :disabled="!future.length" @click="store.redo()">{{ t("timeline.redo") }}</button>
-      <button type="button" class="tool-btn danger" :disabled="!selectedClipIds.length" @click="deleteSelected()">
+      <button type="button" class="tool-btn" @click="splitSelected()" :title="t('timeline.splitHint')">
+        {{ t("timeline.split") }}
+      </button>
+      <button type="button" class="tool-btn danger" :disabled="!selectedClipIds.length" @click="deleteSelected()" :title="t('timeline.deleteHint')">
         {{ t("timeline.delete") }}
       </button>
       <span class="sep" />
@@ -180,6 +196,7 @@ onUnmounted(() => {
         {{ t("timeline.snap") }}
       </label>
     </div>
+    <p class="timeline-hint">{{ t("timeline.editHint") }}</p>
 
     <div class="timeline-body">
       <div class="track-labels">
@@ -266,6 +283,8 @@ onUnmounted(() => {
   --clip-video: rgba(56, 132, 189, 0.85);
   --clip-image: rgba(59, 99, 196, 0.85);
   --clip-audio: rgba(16, 148, 99, 0.85);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .toolbar {
@@ -294,6 +313,15 @@ onUnmounted(() => {
 }
 .tool-btn.danger:hover:not(:disabled) {
   color: #f87171;
+}
+
+.timeline-hint {
+  margin: 0;
+  padding: 0.35rem 0.75rem 0.5rem;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
 }
 
 .tool-time {
@@ -434,15 +462,22 @@ onUnmounted(() => {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 8px;
+  width: 10px;
   cursor: ew-resize;
   z-index: 2;
+  background: transparent;
+}
+.trim-handle:hover,
+.clip.selected .trim-handle {
+  background: rgba(232, 168, 124, 0.55);
 }
 .trim-start {
   left: 0;
+  border-radius: 0.35rem 0 0 0.35rem;
 }
 .trim-end {
   right: 0;
+  border-radius: 0 0.35rem 0.35rem 0;
 }
 
 .playhead {

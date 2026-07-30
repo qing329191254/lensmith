@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue"
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue"
 import { useI18n } from "vue-i18n"
 import { useRouter } from "vue-router"
 import { enhancePrompt, extractVideoUrl, generateVideo, isRequestGateError } from "@/api/seq"
 import { DEMO_FINAL_SEQUENCE } from "@/lib/demo-data"
+import { formatApiError } from "@/lib/provider-errors"
+import { useEditorStore } from "@/stores/editor"
 import { VIDEO_MODEL_OPTIONS, useModelPrefsStore } from "@/stores/modelPrefs"
+import { useToastStore } from "@/stores/toast"
 
 const router = useRouter()
 const modelPrefs = useModelPrefsStore()
+const editor = useEditorStore()
+const toast = useToastStore()
 
 export type VideoModel = string
 
@@ -19,6 +24,8 @@ export interface ResultPanel {
   duration: 3 | 5 | 8
   videoUrl?: string
   isGenerating: boolean
+  progress: number
+  elapsedSec: number
   error?: string
   model: VideoModel
 }
@@ -47,16 +54,26 @@ const aspectRatio = ref<"16:9" | "9:16">("16:9")
 const useFastModel = ref(true)
 const panels = ref<ResultPanel[]>([])
 const enhancing = ref<string | null>(null)
+const batchError = ref("")
+const modelMenuPanelId = ref<string | null>(null)
+const modelMenuStyle = ref<Record<string, string>>({})
+const progressTimers = new Map<string, ReturnType<typeof setInterval>>()
+const progressStartedAt = new Map<string, number>()
 
 function defaultVideoModel(hasLink: boolean): VideoModel {
   const preferred = modelPrefs.videoModel
   const allowed = VIDEO_MODEL_OPTIONS.filter((o) =>
     hasLink ? o.supportsFirstLast : o.supportsI2v,
-  ).map((o) => o.id)
-  return (allowed.includes(preferred) ? preferred : "veo3-fast") as VideoModel
+  )
+  const ids = allowed.map((o) => o.id)
+  if (ids.includes(preferred)) return preferred as VideoModel
+  const cn = allowed.find((o) => o.cnFriendly && !o.needsFal)
+  if (cn) return cn.id as VideoModel
+  return (ids[0] || "veo3-fast") as VideoModel
 }
 
 function buildPanels() {
+  clearAllProgressTimers()
   panels.value = props.initialPanels.map((url, index) => ({
     id: crypto.randomUUID(),
     imageUrl: url,
@@ -65,20 +82,91 @@ function buildPanels() {
     duration: (props.durations[index] || 5) as 3 | 5 | 8,
     videoUrl: props.videoUrls[index],
     isGenerating: false,
+    progress: 0,
+    elapsedSec: 0,
     model: defaultVideoModel(Boolean(props.linkedPanelData[index])),
   }))
 }
 
-onMounted(buildPanels)
+function expectedVideoMs() {
+  return useFastModel.value ? 90_000 : 150_000
+}
+
+function clearProgressTimer(id: string) {
+  const timer = progressTimers.get(id)
+  if (timer) clearInterval(timer)
+  progressTimers.delete(id)
+  progressStartedAt.delete(id)
+}
+
+function clearAllProgressTimers() {
+  for (const id of [...progressTimers.keys()]) clearProgressTimer(id)
+}
+
+function startProgress(id: string) {
+  clearProgressTimer(id)
+  const started = Date.now()
+  progressStartedAt.set(id, started)
+  updatePanel(id, { progress: 3, elapsedSec: 0 }, false)
+  const expectedMs = expectedVideoMs()
+  const timer = setInterval(() => {
+    const elapsed = Date.now() - started
+    const pct = Math.min(92, Math.max(3, Math.round(92 * (1 - Math.exp(-elapsed / expectedMs)))))
+    panels.value = panels.value.map((p) =>
+      p.id === id ? { ...p, progress: pct, elapsedSec: Math.floor(elapsed / 1000) } : p,
+    )
+  }, 400)
+  progressTimers.set(id, timer)
+}
+
+function finishProgress(id: string) {
+  clearProgressTimer(id)
+  panels.value = panels.value.map((p) =>
+    p.id === id ? { ...p, progress: 100, elapsedSec: p.elapsedSec } : p,
+  )
+}
+
+onMounted(() => {
+  buildPanels()
+  document.addEventListener("pointerdown", onDocPointerDown)
+})
+onUnmounted(() => {
+  clearAllProgressTimers()
+  document.removeEventListener("pointerdown", onDocPointerDown)
+})
 watch(() => props.initialPanels, buildPanels)
 
 const totalDuration = computed(() => panels.value.reduce((sum, p) => sum + (p.duration || 5), 0))
 const generatedCount = computed(() => panels.value.filter((p) => p.videoUrl).length)
+const generatingPanels = computed(() => panels.value.filter((p) => p.isGenerating))
+const anyGenerating = computed(() => generatingPanels.value.length > 0)
+const batchProgress = computed(() => {
+  if (!anyGenerating.value) return 0
+  const total = generatingPanels.value.reduce((sum, p) => sum + (p.progress || 0), 0)
+  return Math.round(total / generatingPanels.value.length)
+})
 const allVideosReady = computed(
   () => panels.value.length > 0 && panels.value.every((p) => Boolean(p.videoUrl)),
 )
+const modelMenuPanel = computed(() =>
+  modelMenuPanelId.value ? panels.value.find((p) => p.id === modelMenuPanelId.value) || null : null,
+)
 
 function goToTimeline() {
+  syncToParent()
+  const sequence = panels.value
+    .filter((p) => Boolean(p.videoUrl))
+    .map((p, index) => ({
+      url: p.videoUrl as string,
+      prompt: p.prompt || t("storyboard.panelTitle", { n: index + 1 }),
+      duration: p.duration,
+      thumbnailUrl: p.imageUrl,
+      type: "video" as const,
+    }))
+  editor.importRemoteSequence(sequence, {
+    replaceTimeline: true,
+    projectName: t("storyboard.result.timelineProjectName"),
+  })
   router.push("/timeline")
 }
 
@@ -94,9 +182,9 @@ function syncToParent() {
   emit("update", prompts, durations, videoUrls)
 }
 
-function updatePanel(id: string, updates: Partial<ResultPanel>) {
+function updatePanel(id: string, updates: Partial<ResultPanel>, sync = true) {
   panels.value = panels.value.map((p) => (p.id === id ? { ...p, ...updates } : p))
-  syncToParent()
+  if (sync) syncToParent()
 }
 
 async function handleEnhance(panel: ResultPanel) {
@@ -119,9 +207,18 @@ async function handleEnhance(panel: ResultPanel) {
 
 async function generatePanelVideo(id: string) {
   const panel = panels.value.find((p) => p.id === id)
-  if (!panel || !panel.prompt.trim()) return
+  if (!panel || !panel.prompt.trim() || panel.isGenerating) return
 
-  updatePanel(id, { isGenerating: true, error: undefined })
+  // Keep model compatible with first/last vs single-image panels.
+  const allowed = modelOptions(panel).map((o) => o.value)
+  const model = allowed.includes(panel.model)
+    ? panel.model
+    : defaultVideoModel(Boolean(panel.linkedImageUrl))
+  if (model !== panel.model) updatePanel(id, { model })
+
+  batchError.value = ""
+  updatePanel(id, { isGenerating: true, error: undefined, progress: 3, elapsedSec: 0 }, false)
+  startProgress(id)
 
   try {
     const result = await generateVideo({
@@ -131,27 +228,42 @@ async function generatePanelVideo(id: string) {
       aspectRatio: aspectRatio.value,
       duration: panel.duration,
       useFastModel: useFastModel.value,
-      model: panel.model,
+      model,
     })
     const url = extractVideoUrl(result)
     if (!url) throw new Error(t("storyboard.errNoVideoUrl"))
-    updatePanel(id, { videoUrl: url, isGenerating: false })
+    finishProgress(id)
+    updatePanel(id, { videoUrl: url, isGenerating: false, progress: 100, error: undefined })
   } catch (e) {
+    clearProgressTimer(id)
     if (isRequestGateError(e)) {
-      updatePanel(id, { isGenerating: false, error: undefined })
+      updatePanel(id, { isGenerating: false, error: undefined, progress: 0, elapsedSec: 0 }, false)
       return
     }
-    updatePanel(id, {
-      isGenerating: false,
-      error: e instanceof Error ? e.message : String(e),
-    })
+    const message = formatApiError(e, t)
+    updatePanel(
+      id,
+      { isGenerating: false, progress: 0, elapsedSec: 0, error: message },
+      false,
+    )
+    batchError.value = message
+    toast.error(message, 5000)
   }
 }
 
 async function generateAll() {
+  if (anyGenerating.value) return
   const pending = panels.value.filter((p) => !p.videoUrl && !p.isGenerating && p.prompt.trim())
-  if (!pending.length) return
+  if (!pending.length) {
+    toast.error(t("storyboard.result.nothingToGenerate"))
+    return
+  }
+  batchError.value = ""
   await Promise.all(pending.map((p) => generatePanelVideo(p.id)))
+  const failed = panels.value.filter((p) => p.error)
+  if (failed.length) {
+    batchError.value = failed[0]?.error || t("errors.providerFailed")
+  }
 }
 
 function loadDemoData() {
@@ -188,6 +300,49 @@ function modelOptions(panel: ResultPanel) {
     ].join(" · "),
   }))
 }
+
+function modelLabel(panel: ResultPanel) {
+  return modelOptions(panel).find((o) => o.value === panel.model)?.label || panel.model
+}
+
+function closeModelMenu() {
+  modelMenuPanelId.value = null
+}
+
+async function toggleModelMenu(panelId: string, event: MouseEvent) {
+  if (modelMenuPanelId.value === panelId) {
+    closeModelMenu()
+    return
+  }
+  const el = event.currentTarget as HTMLElement
+  const rect = el.getBoundingClientRect()
+  const menuHeight = Math.min(240, window.innerHeight - 16)
+  const spaceBelow = window.innerHeight - rect.bottom - 8
+  const openUp = spaceBelow < 160 && rect.top > spaceBelow
+  modelMenuStyle.value = {
+    left: `${Math.max(8, Math.min(rect.left, window.innerWidth - 288))}px`,
+    width: `${Math.max(rect.width, 240)}px`,
+    maxHeight: `${menuHeight}px`,
+    ...(openUp
+      ? { bottom: `${window.innerHeight - rect.top + 4}px`, top: "auto" }
+      : { top: `${rect.bottom + 4}px`, bottom: "auto" }),
+  }
+  modelMenuPanelId.value = panelId
+  await nextTick()
+}
+
+function pickModel(panelId: string, model: VideoModel) {
+  updatePanel(panelId, { model })
+  closeModelMenu()
+}
+
+function onDocPointerDown(event: PointerEvent) {
+  if (!modelMenuPanelId.value) return
+  const target = event.target as HTMLElement | null
+  if (target?.closest("[data-model-menu]") || target?.closest("[data-model-trigger]")) return
+  closeModelMenu()
+}
+
 </script>
 
 <template>
@@ -281,13 +436,32 @@ function modelOptions(panel: ResultPanel) {
         </div>
 
         <div class="space-y-2 border-t border-[var(--border)] p-4">
+          <div v-if="anyGenerating" class="space-y-1.5">
+            <div class="flex items-center justify-between text-[10px] text-[var(--muted)]">
+              <span>{{ t("storyboard.result.generatingBatch", { count: generatingPanels.length }) }}</span>
+              <span>{{ batchProgress }}%</span>
+            </div>
+            <div class="h-1.5 overflow-hidden rounded-full bg-[var(--surface)]">
+              <div
+                class="h-full rounded-full bg-[var(--accent)] transition-all duration-300"
+                :style="{ width: `${batchProgress}%` }"
+              />
+            </div>
+          </div>
           <button
             type="button"
-            class="h-10 w-full rounded-lg bg-[var(--accent)] text-sm font-medium text-[#1a120c]"
+            class="h-10 w-full rounded-lg bg-[var(--accent)] text-sm font-medium text-[#1a120c] disabled:opacity-50"
+            :disabled="anyGenerating"
             @click="generateAll"
           >
-            ✦ {{ t("storyboard.result.generateAll") }}
+            ✦ {{ anyGenerating ? t("storyboard.result.generating") : t("storyboard.result.generateAll") }}
           </button>
+          <p
+            v-if="batchError"
+            class="rounded-md border border-red-400/30 bg-red-500/10 px-2.5 py-2 text-xs leading-snug text-red-300"
+          >
+            {{ batchError }}
+          </p>
         </div>
       </div>
 
@@ -304,7 +478,7 @@ function modelOptions(panel: ResultPanel) {
             <div
               v-for="(panel, index) in panels"
               :key="panel.id"
-              class="flex h-[420px] w-[280px] flex-none flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)]"
+              class="flex min-h-[420px] w-[280px] flex-none flex-col rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)]"
             >
               <div class="flex items-center justify-between border-b border-[var(--border)] p-2">
                 <div class="flex items-center gap-2">
@@ -317,7 +491,7 @@ function modelOptions(panel: ResultPanel) {
                 </div>
               </div>
 
-              <div class="relative aspect-video bg-[var(--surface)]">
+              <div class="relative aspect-video overflow-hidden bg-[var(--surface)]">
                 <video
                   v-if="panel.videoUrl"
                   :src="panel.videoUrl"
@@ -340,27 +514,43 @@ function modelOptions(panel: ResultPanel) {
 
                 <div
                   v-if="panel.isGenerating"
-                  class="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/60 backdrop-blur-[1px]"
+                  class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/65 px-4 backdrop-blur-[1px]"
                 >
-                  <span class="animate-pulse text-xs text-white/80">{{ t("storyboard.result.generating") }}</span>
+                  <span class="text-xs font-medium text-white/90">
+                    {{ t("storyboard.result.generatingProgress", { percent: panel.progress }) }}
+                  </span>
+                  <div class="h-1.5 w-full max-w-[200px] overflow-hidden rounded-full bg-white/20">
+                    <div
+                      class="h-full rounded-full bg-[var(--accent)] transition-all duration-300"
+                      :style="{ width: `${panel.progress}%` }"
+                    />
+                  </div>
+                  <span class="text-[10px] text-white/55">
+                    {{ t("storyboard.result.generatingElapsed", { seconds: panel.elapsedSec }) }}
+                  </span>
+                  <span class="text-center text-[10px] leading-relaxed text-white/45">
+                    {{ t("storyboard.result.generatingHint") }}
+                  </span>
                 </div>
               </div>
 
-              <div class="flex flex-1 flex-col gap-3 p-3">
+              <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
                 <div class="space-y-1">
                   <label class="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
                     {{ t("storyboard.result.videoModel") }}
                   </label>
-                  <select
-                    :value="panel.model"
-                    class="h-7 w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 text-xs"
-                    @change="updatePanel(panel.id, { model: ($event.target as HTMLSelectElement).value as VideoModel })"
+                  <button
+                    type="button"
+                    data-model-trigger
+                    class="flex h-7 w-full items-center justify-between gap-2 rounded border border-[var(--border)] bg-[var(--surface)] px-2 text-left text-xs outline-none hover:border-[var(--focus)] focus:border-[var(--focus)]"
+                    @click="toggleModelMenu(panel.id, $event)"
                   >
-                    <option v-for="opt in modelOptions(panel)" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-                  </select>
+                    <span class="truncate">{{ modelLabel(panel) }}</span>
+                    <span class="shrink-0 text-[var(--muted)]">▾</span>
+                  </button>
                 </div>
 
-                <div class="flex-1 space-y-1">
+                <div class="space-y-1">
                   <div class="flex items-center justify-between">
                     <label class="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
                       {{ t("storyboard.result.videoPrompt") }}
@@ -376,8 +566,8 @@ function modelOptions(panel: ResultPanel) {
                   </div>
                   <textarea
                     :value="panel.prompt"
-                    rows="4"
-                    class="min-h-[80px] w-full resize-none rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 font-mono text-xs outline-none focus:border-[var(--focus)]"
+                    rows="3"
+                    class="min-h-[64px] w-full resize-none rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 font-mono text-xs outline-none focus:border-[var(--focus)]"
                     :placeholder="panel.linkedImageUrl ? t('storyboard.result.transitionPromptPlaceholder') : t('storyboard.motionPlaceholder')"
                     @input="updatePanel(panel.id, { prompt: ($event.target as HTMLTextAreaElement).value })"
                   />
@@ -398,7 +588,13 @@ function modelOptions(panel: ResultPanel) {
                   </select>
                 </div>
 
-                <div class="mt-auto pt-2">
+                <div class="mt-auto space-y-2 pt-2">
+                  <p
+                    v-if="panel.error"
+                    class="rounded-md border border-red-400/30 bg-red-500/10 px-2 py-1.5 text-xs leading-snug text-red-300"
+                  >
+                    {{ panel.error }}
+                  </p>
                   <button
                     type="button"
                     class="h-8 w-full rounded-lg text-xs font-medium disabled:opacity-50"
@@ -413,11 +609,10 @@ function modelOptions(panel: ResultPanel) {
                     :href="panel.videoUrl"
                     target="_blank"
                     rel="noreferrer"
-                    class="mt-2 block text-center text-xs text-[var(--focus)] underline"
+                    class="block text-center text-xs text-[var(--focus)] underline"
                   >
                     {{ t("storyboard.openVideo") }}
                   </a>
-                  <p v-if="panel.error" class="mt-1 px-1 text-[10px] text-red-400">{{ panel.error }}</p>
                 </div>
               </div>
             </div>
@@ -425,5 +620,25 @@ function modelOptions(panel: ResultPanel) {
         </div>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="modelMenuPanelId && modelMenuPanel"
+        data-model-menu
+        class="thin-scrollbar fixed z-[100] overflow-y-auto overscroll-contain rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] py-1 shadow-xl"
+        :style="modelMenuStyle"
+      >
+        <button
+          v-for="opt in modelOptions(modelMenuPanel)"
+          :key="opt.value"
+          type="button"
+          class="block w-full px-3 py-2 text-left text-xs hover:bg-[var(--surface)]"
+          :class="opt.value === modelMenuPanel.model ? 'bg-[var(--surface)] text-[var(--accent)]' : 'text-[var(--text)]'"
+          @click="pickModel(modelMenuPanelId!, opt.value as VideoModel)"
+        >
+          {{ opt.label }}
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>

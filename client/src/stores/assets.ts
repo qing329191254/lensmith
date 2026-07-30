@@ -210,6 +210,5 @@ export function sourceFromRoute(route: string): AssetSource {
   if (route === "upscale") return "image-playground"
   if (route === "generate-video") return "storyboard"
   if (route === "storyboard-run") return "storyboard"
-  if (route === "ad-run") return "ads"
   return "other"
 }

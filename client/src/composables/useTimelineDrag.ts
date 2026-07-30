@@ -21,11 +21,15 @@ export interface UseTimelineDragOptions {
   zoomLevel: () => number
   snapEnabled: () => boolean
   getSnapTime: (time: number, ignoreClipIds: string[]) => number | null
+  /** Source media length in seconds; used to prevent stretching past available footage. */
+  getMediaDuration?: (clipId: string) => number | null
   onClipUpdate: (clipId: string, changes: Partial<TimelineClip>, recordHistory?: boolean) => void
   onSelectClips: (clipIds: string[]) => void
   onDragStart: () => void
   onDragEndCommit: () => void
 }
+
+const MIN_CLIP = 0.5
 
 export function useTimelineDrag(options: UseTimelineDragOptions) {
   const dragState = ref<DragState>({
@@ -40,6 +44,11 @@ export function useTimelineDrag(options: UseTimelineDragOptions) {
     snapBreakThreshold: 20,
   })
   const snapIndicator = ref<number | null>(null)
+
+  function mediaDuration(clipId: string): number | null {
+    const d = options.getMediaDuration?.(clipId)
+    return d != null && Number.isFinite(d) && d > 0 ? d : null
+  }
 
   function handleMouseDownClip(e: MouseEvent, clip: TimelineClip, mode: DragMode) {
     e.stopPropagation()
@@ -151,8 +160,11 @@ export function useTimelineDrag(options: UseTimelineDragOptions) {
     } else if (ds.mode === "trim-start") {
       const id = ds.clipIds[0]
       const state = ds.initialStates[id]
-      const maxDelta = state.duration - 0.5
+      const maxDelta = state.duration - MIN_CLIP
       let validDelta = Math.min(deltaSeconds, maxDelta)
+      // Cannot reveal frames before source start
+      if (state.offset + validDelta < 0) validDelta = -state.offset
+
       let newStart = state.start + validDelta
       const minAllowedStart = state.start + ds.minStartDelta
       if (newStart < minAllowedStart) {
@@ -163,7 +175,12 @@ export function useTimelineDrag(options: UseTimelineDragOptions) {
         const snap = options.getSnapTime(newStart, [id])
         if (snap !== null) {
           const snapDelta = snap - state.start
-          if (snap >= minAllowedStart && state.duration - snapDelta >= 0.5) {
+          const nextOffset = state.offset + snapDelta
+          if (
+            snap >= minAllowedStart &&
+            state.duration - snapDelta >= MIN_CLIP &&
+            nextOffset >= 0
+          ) {
             newStart = snap
             validDelta = snapDelta
             snappedTime = snap
@@ -179,16 +196,21 @@ export function useTimelineDrag(options: UseTimelineDragOptions) {
     } else if (ds.mode === "trim-end") {
       const id = ds.clipIds[0]
       const state = ds.initialStates[id]
+      const sourceLen = mediaDuration(id)
+      // Max timeline length = remaining source from current offset (no frozen hold frames)
+      const maxDuration =
+        sourceLen != null ? Math.max(MIN_CLIP, sourceLen - state.offset) : Number.POSITIVE_INFINITY
       let newDuration = state.duration + deltaSeconds
       if (options.snapEnabled()) {
         const endPos = state.start + newDuration
         const snap = options.getSnapTime(endPos, [id])
-        if (snap !== null && snap - state.start >= 0.5) {
+        if (snap !== null && snap - state.start >= MIN_CLIP) {
           newDuration = snap - state.start
           snappedTime = snap
         }
       }
-      if (newDuration >= 0.5) options.onClipUpdate(id, { duration: newDuration })
+      newDuration = Math.min(Math.max(MIN_CLIP, newDuration), maxDuration)
+      options.onClipUpdate(id, { duration: newDuration })
     }
 
     snapIndicator.value = snappedTime

@@ -104,7 +104,8 @@ export const useStoryboardStore = defineStore("storyboard", () => {
       videoUrls.value = session.videoUrls || {}
       // Server checkpointer is in-memory; stale thread ids are useless after restart.
       threadId.value = null
-      restored.value = true
+      // Only flag "restored" when we actually resume mid-flow (not a leftover prompt screen).
+      restored.value = step.value !== "prompt"
     } catch (e) {
       console.error("Failed to load storyboard session", e)
     }

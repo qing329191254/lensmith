@@ -5,7 +5,6 @@ const router = createRouter({
   routes: [
     { path: "/", name: "landing", component: () => import("@/views/LandingView.vue") },
     { path: "/storyboard", name: "storyboard", component: () => import("@/views/StoryboardView.vue") },
-    { path: "/ads", name: "ads", component: () => import("@/views/AdsView.vue") },
     {
       path: "/image-playground",
       name: "image-playground",

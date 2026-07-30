@@ -183,8 +183,11 @@ async function run() {
     }
     const result = await generateImage(form)
     resultUrl.value = result.url
-    history.add({ url: result.url, prompt: result.prompt, mode: mode.value })
-    selectedHistoryId.value = history.items[0]?.id ?? null
+    const saved = history.add({ url: result.url, prompt: result.prompt, mode: mode.value })
+    selectedHistoryId.value = saved?.id ?? history.items[0]?.id ?? null
+    if (!saved && result.url?.startsWith("data:")) {
+      showToast(t("images.historySkippedLarge"))
+    }
   } catch (e) {
     if (isRequestGateError(e)) return
     error.value = formatApiError(e, t)
@@ -215,8 +218,8 @@ onUnmounted(() => {
       <p class="mt-2 max-w-2xl text-[var(--muted)]">{{ t("images.subtitle") }}</p>
     </div>
 
-    <div class="grid gap-8 lg:grid-cols-[1fr_1fr]">
-      <div class="space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-6">
+    <div class="grid items-start gap-8 lg:grid-cols-[1fr_1fr]">
+      <div class="space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-6 lg:sticky lg:top-4">
         <div class="flex gap-2">
           <button
             type="button"
@@ -303,47 +306,49 @@ onUnmounted(() => {
 
       <div class="space-y-4">
         <div
-          class="relative flex min-h-[280px] items-center justify-center overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)]"
+          class="relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)]"
         >
           <img
             v-if="resultUrl"
             :src="resultUrl"
             :alt="t('images.altResult')"
-            class="max-h-[480px] w-full cursor-zoom-in object-contain"
+            class="h-full w-full cursor-zoom-in object-contain"
             @click="showFullscreen = true"
           />
           <p v-else class="text-sm text-[var(--muted)]">{{ t("images.resultPlaceholder") }}</p>
         </div>
 
-        <div v-if="resultUrl" class="flex flex-wrap gap-2">
-          <button
-            type="button"
-            class="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs hover:border-[var(--accent)]"
-            @click="downloadResult"
-          >
-            {{ t("images.download") }}
-          </button>
-          <button
-            type="button"
-            class="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs hover:border-[var(--accent)]"
-            @click="copyToClipboard"
-          >
-            {{ t("images.copy") }}
-          </button>
-          <button
-            type="button"
-            class="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs hover:border-[var(--accent)]"
-            @click="showFullscreen = true"
-          >
-            {{ t("images.fullscreen") }}
-          </button>
-          <button
-            type="button"
-            class="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs hover:border-[var(--accent)]"
-            @click="useAsInput"
-          >
-            {{ t("images.useAsInput") }}
-          </button>
+        <div class="flex min-h-[2rem] flex-wrap gap-2">
+          <template v-if="resultUrl">
+            <button
+              type="button"
+              class="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs hover:border-[var(--accent)]"
+              @click="downloadResult"
+            >
+              {{ t("images.download") }}
+            </button>
+            <button
+              type="button"
+              class="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs hover:border-[var(--accent)]"
+              @click="copyToClipboard"
+            >
+              {{ t("images.copy") }}
+            </button>
+            <button
+              type="button"
+              class="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs hover:border-[var(--accent)]"
+              @click="showFullscreen = true"
+            >
+              {{ t("images.fullscreen") }}
+            </button>
+            <button
+              type="button"
+              class="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs hover:border-[var(--accent)]"
+              @click="useAsInput"
+            >
+              {{ t("images.useAsInput") }}
+            </button>
+          </template>
         </div>
 
         <div>
@@ -359,26 +364,34 @@ onUnmounted(() => {
             </button>
           </div>
           <p v-if="!history.items.length" class="text-sm text-[var(--muted)]">{{ t("images.historyEmpty") }}</p>
-          <div v-else class="grid grid-cols-3 gap-2 sm:grid-cols-4">
-            <div
-              v-for="item in history.items"
-              :key="item.id"
-              class="group relative overflow-hidden rounded-lg border"
-              :class="selectedHistoryId === item.id ? 'border-[var(--accent)]' : 'border-[var(--border)]'"
-            >
-              <button type="button" class="block w-full" @click="selectHistory(item.id, item.url)">
-                <img :src="item.url" :alt="item.prompt" class="aspect-square object-cover" />
-              </button>
-              <button
-                type="button"
-                class="absolute right-1 top-1 rounded bg-[rgba(12,17,24,0.85)] p-1 text-[var(--muted)] opacity-0 transition group-hover:opacity-100 hover:text-red-200"
-                :aria-label="t('images.deleteItem')"
-                @click.stop="deleteHistory(item.id)"
+          <div v-else class="max-h-[min(360px,45vh)] overflow-y-auto overscroll-contain pr-1">
+            <div class="grid grid-cols-3 gap-2 sm:grid-cols-4">
+              <div
+                v-for="item in history.items"
+                :key="item.id"
+                class="group relative overflow-hidden rounded-lg border"
+                :class="selectedHistoryId === item.id ? 'border-[var(--accent)]' : 'border-[var(--border)]'"
               >
-                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+                <button type="button" class="block w-full" @click="selectHistory(item.id, item.url)">
+                  <img
+                    :src="item.url"
+                    :alt="item.prompt"
+                    class="aspect-square object-cover"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </button>
+                <button
+                  type="button"
+                  class="absolute right-1 top-1 rounded bg-[rgba(12,17,24,0.85)] p-1 text-[var(--muted)] opacity-0 transition group-hover:opacity-100 hover:text-red-200"
+                  :aria-label="t('images.deleteItem')"
+                  @click.stop="deleteHistory(item.id)"
+                >
+                  <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
         </div>

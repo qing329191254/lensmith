@@ -11,7 +11,7 @@ const props = withDefaults(
     masterUrl: string
     masterPrompt: string
     storageMode: StorageMode
-    /** Server graph runs transition + panel process after human skip/run. */
+    /** Server graph pauses after skip/run; AI extract is opt-in at process step. */
     orchestrated?: boolean
     busy?: boolean
   }>(),

@@ -89,6 +89,8 @@ function onDrop(e: DragEvent) {
   height: 100%;
   border-right: 1px solid var(--border);
   background: var(--bg-elevated);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .library-header {

@@ -5,7 +5,14 @@
  * 页面继续从 `@/api/seq` 导入即可；公共符号在下方再导出。
  */
 
-import { ensureImageKey, ensureKey, ensureVideoKey, trackedJson } from "@/api/http"
+import {
+  checkApiKey,
+  ensureImageKey,
+  ensureKey,
+  ensureVideoKey,
+  trackedJson,
+} from "@/api/http"
+import { useApiKeysStore } from "@/stores/apiKeys"
 
 export {
   ApiKeyRequiredError,
@@ -21,9 +28,9 @@ export {
 
 // --- 文本 / 视觉 -----------------------------------------------------------
 
-/** 用文本模型改写故事提示词。 */
+/** 用文本模型改写故事提示词（与生图共用绘图密钥）。 */
 export async function enhanceText(prompt: string): Promise<{ enhancedPrompt: string }> {
-  await ensureKey("text")
+  await ensureImageKey()
   return trackedJson("enhance-text", "/api/seq/enhance-text", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -45,11 +52,27 @@ export async function enhancePrompt(payload: {
   })
 }
 
-/** 从主分镜图分析格数与描述。 */
+/**
+ * 从主分镜图分析格数与描述。
+ * `soft: true`：无密钥时不弹窗，直接回退默认格数（上传预览用）。
+ */
 export async function analyzeStoryboard(
   imageUrl: string,
+  options?: { soft?: boolean },
 ): Promise<{ panelCount: number; description?: string }> {
-  await ensureKey("gateway")
+  if (options?.soft) {
+    const keys = useApiKeysStore()
+    if (!keys.hasGateway) {
+      try {
+        const status = await checkApiKey()
+        if (!status.configured) return { panelCount: 6 }
+      } catch {
+        return { panelCount: 6 }
+      }
+    }
+  } else {
+    await ensureKey("gateway")
+  }
   return trackedJson("analyze-storyboard", "/api/seq/analyze-storyboard", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -218,98 +241,6 @@ export async function getStoryboardSession(threadId: string): Promise<Storyboard
   await ensureKey("gateway")
   return trackedJson("storyboard-run", `/api/seq/storyboard/session/${threadId}`, {
     method: "GET",
-  })
-}
-
-// --- 短视频广告会话 --------------------------------------------------------
-
-export type AdBrief = {
-  product: string
-  sellingPoints?: string
-  audience?: string
-  cta?: string
-  durationSec?: number
-  aspectRatio?: string
-  platform?: string
-  template?: string
-  tone?: string
-}
-
-export type AdSessionResponse = {
-  engine: string
-  mode?: string
-  threadId: string
-  status: "interrupted" | "completed" | "failed" | "not_found"
-  waitingFor: string
-  interrupt: Record<string, unknown> | null
-  state: {
-    brief?: AdBrief
-    workingPrompt?: string
-    copy: {
-      hook: string
-      lines: string[]
-      cta: string
-      visualBrief: string
-    }
-    masterUrl?: string | null
-    panelCount: number
-    analysis?: string
-    transitionPanels: string[]
-    processedPanels: string[]
-    panels: Array<{
-      index?: number
-      imageUrl?: string
-      linkedImageUrl?: string
-      prompt?: string
-      videoUrl?: string
-      duration?: number
-      subtitle?: string
-      error?: string
-    }>
-    step?: string
-    phase?: string
-    waitingFor?: string
-    errors: string[]
-  }
-}
-
-/** 根据产品 brief 开启短广告生成会话。 */
-export async function startAdSession(payload: {
-  brief: AdBrief
-  options?: { maxPanels?: number; useFastVideo?: boolean }
-}): Promise<AdSessionResponse> {
-  await ensureKey("gateway")
-  return trackedJson("ad-run", "/api/seq/ads/session", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  })
-}
-
-/** 恢复广告会话（文案修改、分镜、视频等）。 */
-export async function resumeAdSession(
-  threadId: string,
-  payload: {
-    action: string
-    hook?: string
-    lines?: string[]
-    cta?: string
-    visualBrief?: string
-    notes?: string
-    transitionPrompt?: string
-    panelCount?: number
-    panels?: Array<string | Record<string, unknown>>
-    enhanceVideoPrompts?: boolean
-    generateVideos?: boolean
-    useFastVideo?: boolean
-  },
-): Promise<AdSessionResponse> {
-  await ensureKey("gateway")
-  if (payload.generateVideos) await ensureVideoKey()
-  return trackedJson("ad-run", `/api/seq/ads/session/${threadId}/resume`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
   })
 }
 

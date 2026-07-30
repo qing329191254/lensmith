@@ -79,19 +79,31 @@ async def chat_completion(
 ) -> dict[str, Any]:
     from app.request_keys import (
         normalize_model_for_base,
+        resolve_compatible_api_base_url,
         resolve_gateway_base_url,
         resolve_text_base_url,
+        strip_compatible_model_id,
+        uses_compatible_chat,
     )
 
     api_key = _require_key(for_text=for_text)
-    base = resolve_text_base_url() if for_text else resolve_gateway_base_url()
-    model_id = normalize_model_for_base(model, base) if for_text else model
+    if uses_compatible_chat(model):
+        base = resolve_compatible_api_base_url()
+        model_id = strip_compatible_model_id(model)
+    elif for_text:
+        base = resolve_text_base_url()
+        model_id = normalize_model_for_base(model, base)
+    else:
+        base = resolve_gateway_base_url()
+        model_id = model
 
     payload: dict[str, Any] = {"model": model_id, "messages": messages}
     if system:
         payload["messages"] = [{"role": "system", "content": system}, *messages]
-    # providerOptions is Gateway-specific; skip on direct DeepSeek / other OpenAI APIs.
-    if provider_options and (not for_text or "ai-gateway" in base or "vercel.sh" in base):
+    # providerOptions is Gateway-specific; skip on Zhipu / DeepSeek / other OpenAI APIs.
+    if provider_options and (
+        "ai-gateway" in base or "vercel.sh" in base
+    ):
         payload["providerOptions"] = provider_options
 
     url = f"{base}/chat/completions"
@@ -362,6 +374,30 @@ async def analyze_storyboard(image_url: str) -> tuple[int, str, dict[str, int]]:
 
     panel_count = max(1, min(12, panel_count))
     return panel_count, extract_text(result), extract_usage(result)
+
+
+async def analyze_storyboard_or_default(
+    image_url: str,
+    *,
+    default_panel_count: int = 6,
+    max_panels: int = 12,
+) -> tuple[int, str, dict[str, int]]:
+    """Analyze panel count when vision is available; otherwise use a safe default.
+
+    CogView / Zhipu text-to-image setups cannot run Gemini vision with the same key.
+    Soft-fail so master generation can still succeed.
+    """
+    from app.request_keys import supports_image_vision
+
+    capped = max(1, min(int(max_panels or 12), int(default_panel_count or 6)))
+    if not supports_image_vision():
+        return capped, "", {}
+    try:
+        count, analysis, usage = await analyze_storyboard(image_url)
+        return max(1, min(int(max_panels or 12), count)), analysis, usage
+    except Exception:
+        return capped, "", {}
+
 
 
 async def generate_image_text_to_image(prompt: str, aspect_ratio: str) -> tuple[str, str, dict[str, int]]:

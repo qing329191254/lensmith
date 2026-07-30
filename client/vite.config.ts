@@ -10,6 +10,14 @@ export default defineConfig({
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
+  // @ffmpeg/ffmpeg ships its own worker; Vite's dep optimizer breaks it.
+  optimizeDeps: {
+    exclude: ["@ffmpeg/ffmpeg", "@ffmpeg/util", "@ffmpeg/core"],
+  },
+  assetsInclude: ["**/*.wasm"],
+  worker: {
+    format: "es",
+  },
   server: {
     port: 5173,
     proxy: {

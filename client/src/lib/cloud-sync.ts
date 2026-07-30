@@ -121,6 +121,13 @@ async function syncAssets() {
   assets.replaceAll([...merged.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, 120))
 }
 
+/** Prefer non-empty remote; never clobber a local secret with an empty cloud value. */
+function mergeSecret(remote: string | undefined, local: string): string {
+  const r = (remote || "").trim()
+  if (r) return r
+  return (local || "").trim()
+}
+
 async function syncSettings() {
   const keys = useApiKeysStore()
   const prefs = useModelPrefsStore()
@@ -150,18 +157,34 @@ async function syncSettings() {
     return
   }
 
-  // Cloud wins for signed-in users
-  keys.applyRemote({
-    textApiKey: remote.textApiKey || "",
-    aiGatewayKey: remote.aiGatewayKey || "",
-    falKey: remote.falKey || "",
-  })
+  const mergedKeys = {
+    textApiKey: mergeSecret(remote.textApiKey, keys.textApiKey),
+    aiGatewayKey: mergeSecret(remote.aiGatewayKey, keys.aiGatewayKey),
+    falKey: mergeSecret(remote.falKey, keys.falKey),
+  }
+  keys.applyRemote(mergedKeys)
+
   if (remote.textModel || remote.imageModel || remote.videoModel || remote.gatewayBaseUrl) {
     prefs.applyRemote({
       textModel: remote.textModel,
       imageModel: remote.imageModel,
       videoModel: remote.videoModel,
       gatewayBaseUrl: remote.gatewayBaseUrl,
+    })
+  }
+
+  // Heal cloud when decrypt/empty remote dropped secrets we still have locally
+  const healed =
+    (mergedKeys.aiGatewayKey && !remote.aiGatewayKey) ||
+    (mergedKeys.falKey && !remote.falKey) ||
+    (mergedKeys.textApiKey && !remote.textApiKey)
+  if (healed) {
+    await pushCloudSettings({
+      ...mergedKeys,
+      textModel: prefs.textModel,
+      imageModel: prefs.imageModel,
+      videoModel: prefs.videoModel,
+      gatewayBaseUrl: prefs.gatewayBaseUrl,
     })
   }
 }

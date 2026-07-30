@@ -178,7 +178,6 @@ export const ROUTE_RECOMMENDED_MODEL: Record<string, string> = {
   "generate-video": "veo3-fast",
   upscale: "fal-ai/ccsr",
   "storyboard-run": "google/gemini-3-pro-image",
-  "ad-run": "google/gemini-3-pro-image",
   other: "google/gemini-2.5-flash",
 }
 
@@ -255,7 +254,7 @@ export function estimateCostUsd(
   }
 
   if (rate.kind === "image" || rate.kind === "video" || rate.kind === "upscale") {
-    if (route === "storyboard-run" || route === "ad-run") {
+    if (route === "storyboard-run") {
       const textRate = getModelRate(recommendedModelForRoute("enhance-text"))
       const textPart = textRate
         ? estimateCostUsd("enhance-text", tokens, textRate.id, breakdown).costUsd

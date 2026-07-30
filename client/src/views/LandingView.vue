@@ -13,7 +13,6 @@ let ctx: gsap.Context | null = null
 
 const quickActions = [
   { to: "/storyboard", titleKey: "landing.quickStoryboard", descKey: "landing.quickStoryboardDesc", accent: true },
-  { to: "/ads", titleKey: "landing.quickAds", descKey: "landing.quickAdsDesc", accent: false },
   { to: "/image-playground", titleKey: "landing.quickImages", descKey: "landing.quickImagesDesc", accent: false },
   { to: "/timeline", titleKey: "landing.quickTimeline", descKey: "landing.quickTimelineDesc", accent: false },
 ]
@@ -202,7 +201,7 @@ onUnmounted(() => {
           <h2 class="display text-2xl md:text-3xl">{{ t("landing.quickTitle") }}</h2>
           <p class="mx-auto mt-2 max-w-xl text-sm text-[var(--muted)]">{{ t("landing.quickSubtitle") }}</p>
         </div>
-        <div class="quick-grid grid gap-3 sm:grid-cols-2 sm:gap-4">
+        <div class="quick-grid grid gap-3 sm:grid-cols-3 sm:gap-4">
           <div v-for="action in quickActions" :key="action.to" class="quick-card">
             <RouterLink
               :to="action.to"

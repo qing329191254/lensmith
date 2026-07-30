@@ -11,6 +11,19 @@ export const RECOMMENDED = {
   videoModel: "veo3-fast",
 } as const
 
+/**
+ * Domestic one-key path via Volcengine Ark (即梦同源 Seedream + Seedance).
+ * Panel-count vision soft-fails to defaults — main storyboard flow still works.
+ */
+export const PRESET_JIMENG = {
+  textModel: "google/gemini-2.5-flash",
+  imageModel: "doubao-seedream-4-0-250828",
+  videoModel: "doubao-seedance-2-0-fast",
+  gatewayBaseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+} as const
+
+export type WorkspacePresetId = "recommended" | "jimeng"
+
 export type ModelRole = "text" | "image" | "video"
 
 export interface ModelOption {
@@ -105,6 +118,28 @@ export const IMAGE_MODEL_OPTIONS: ModelOption[] = [
     note: "仅生图",
   },
   {
+    id: "doubao-seedream-4-0-250828",
+    label: "Seedream 4.0（即梦）",
+    role: "image",
+    vendor: "Volcengine",
+    cnFriendly: true,
+    needsGateway: true,
+    supportsEdit: true,
+    supportsVision: false,
+    note: "方舟 · 文生图/图生图",
+  },
+  {
+    id: "doubao-seedream-4-5-251128",
+    label: "Seedream 4.5（即梦）",
+    role: "image",
+    vendor: "Volcengine",
+    cnFriendly: true,
+    needsGateway: true,
+    supportsEdit: true,
+    supportsVision: false,
+    note: "方舟 · 更高画质",
+  },
+  {
     id: "zhipu/cogview-3-flash",
     label: "CogView 3 Flash",
     role: "image",
@@ -113,7 +148,7 @@ export const IMAGE_MODEL_OPTIONS: ModelOption[] = [
     needsGateway: true,
     supportsEdit: false,
     supportsVision: false,
-    note: "仅文生图",
+    note: "文生图；分镜精修为近似",
   },
   {
     id: "zhipu/cogview-4",
@@ -124,7 +159,7 @@ export const IMAGE_MODEL_OPTIONS: ModelOption[] = [
     needsGateway: true,
     supportsEdit: false,
     supportsVision: false,
-    note: "仅文生图",
+    note: "文生图；分镜精修为近似",
   },
 ]
 
@@ -173,8 +208,44 @@ export const VIDEO_MODEL_OPTIONS: ModelOption[] = [
     note: "fal",
   },
   {
+    id: "doubao-seedance-2-0-fast",
+    label: "Seedance 2.0 Fast（即梦）",
+    role: "video",
+    vendor: "Volcengine",
+    cnFriendly: true,
+    needsGateway: true,
+    needsFal: false,
+    supportsI2v: true,
+    supportsFirstLast: true,
+    note: "方舟 · 推荐分镜",
+  },
+  {
+    id: "doubao-seedance-2-0",
+    label: "Seedance 2.0（即梦）",
+    role: "video",
+    vendor: "Volcengine",
+    cnFriendly: true,
+    needsGateway: true,
+    needsFal: false,
+    supportsI2v: true,
+    supportsFirstLast: true,
+    note: "方舟 · 更高画质",
+  },
+  {
+    id: "doubao-seedance-2-0-mini",
+    label: "Seedance 2.0 Mini（即梦）",
+    role: "video",
+    vendor: "Volcengine",
+    cnFriendly: true,
+    needsGateway: true,
+    needsFal: false,
+    supportsI2v: true,
+    supportsFirstLast: true,
+    note: "方舟 · 更省",
+  },
+  {
     id: "seedance-2-fast",
-    label: "Seedance 2.0 Fast",
+    label: "Seedance 2.0 Fast (fal)",
     role: "video",
     vendor: "ByteDance",
     cnFriendly: true,
@@ -235,8 +306,9 @@ export const VIDEO_MODEL_OPTIONS: ModelOption[] = [
     cnFriendly: true,
     needsGateway: true,
     supportsI2v: true,
-    supportsFirstLast: true,
-    note: "智谱 / 中转",
+    // Official first/last-frame API is documented for CogVideoX-3.
+    supportsFirstLast: false,
+    note: "智谱 · 单图",
   },
   {
     id: "viduq1",
@@ -273,10 +345,26 @@ export interface ModelPrefsState {
   gatewayBaseUrl: string
 }
 
+export const WORKSPACE_PRESETS: Record<
+  WorkspacePresetId,
+  { prefs: ModelPrefsState; needsFal: boolean }
+> = {
+  recommended: {
+    prefs: { ...RECOMMENDED, gatewayBaseUrl: "" },
+    needsFal: true,
+  },
+  jimeng: {
+    prefs: { ...PRESET_JIMENG },
+    needsFal: false,
+  },
+}
+
 function load(): ModelPrefsState {
+  // First visit: 即梦 / 方舟 one-key path (image + video, no fal).
+  const fresh = { ...PRESET_JIMENG }
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { ...RECOMMENDED, gatewayBaseUrl: "" }
+    if (!raw) return fresh
     const parsed = JSON.parse(raw) as Partial<ModelPrefsState> & { textBaseUrl?: string }
     // Migrate old separate textBaseUrl into the single proxy URL if needed.
     const base =
@@ -284,13 +372,13 @@ function load(): ModelPrefsState {
       (typeof parsed.textBaseUrl === "string" && parsed.textBaseUrl.trim()) ||
       ""
     return {
-      textModel: parsed.textModel?.trim() || RECOMMENDED.textModel,
-      imageModel: parsed.imageModel?.trim() || RECOMMENDED.imageModel,
-      videoModel: parsed.videoModel?.trim() || RECOMMENDED.videoModel,
+      textModel: parsed.textModel?.trim() || fresh.textModel,
+      imageModel: parsed.imageModel?.trim() || fresh.imageModel,
+      videoModel: parsed.videoModel?.trim() || fresh.videoModel,
       gatewayBaseUrl: base,
     }
   } catch {
-    return { ...RECOMMENDED, gatewayBaseUrl: "" }
+    return fresh
   }
 }
 
@@ -320,10 +408,30 @@ export const useModelPrefsStore = defineStore("modelPrefs", () => {
   })
 
   function resetToRecommended() {
-    textModel.value = RECOMMENDED.textModel
-    imageModel.value = RECOMMENDED.imageModel
-    videoModel.value = RECOMMENDED.videoModel
-    gatewayBaseUrl.value = ""
+    applyPreset("recommended")
+  }
+
+  function applyPreset(id: WorkspacePresetId) {
+    const next = WORKSPACE_PRESETS[id].prefs
+    textModel.value = next.textModel
+    imageModel.value = next.imageModel
+    videoModel.value = next.videoModel
+    gatewayBaseUrl.value = next.gatewayBaseUrl
+  }
+
+  function matchedPreset(): WorkspacePresetId | null {
+    for (const id of Object.keys(WORKSPACE_PRESETS) as WorkspacePresetId[]) {
+      const p = WORKSPACE_PRESETS[id].prefs
+      if (
+        textModel.value === p.textModel &&
+        imageModel.value === p.imageModel &&
+        videoModel.value === p.videoModel &&
+        (gatewayBaseUrl.value.trim() || "") === (p.gatewayBaseUrl || "")
+      ) {
+        return id
+      }
+    }
+    return null
   }
 
   function save(next: Partial<ModelPrefsState>) {
@@ -357,13 +465,8 @@ export const useModelPrefsStore = defineStore("modelPrefs", () => {
     return headers
   }
 
-  const usingRecommended = computed(
-    () =>
-      textModel.value === RECOMMENDED.textModel &&
-      imageModel.value === RECOMMENDED.imageModel &&
-      videoModel.value === RECOMMENDED.videoModel &&
-      !gatewayBaseUrl.value.trim(),
-  )
+  const usingRecommended = computed(() => matchedPreset() === "recommended")
+  const activePreset = computed(() => matchedPreset())
 
   return {
     textModel,
@@ -371,9 +474,12 @@ export const useModelPrefsStore = defineStore("modelPrefs", () => {
     videoModel,
     gatewayBaseUrl,
     usingRecommended,
+    activePreset,
     save,
     applyRemote,
     resetToRecommended,
+    applyPreset,
+    matchedPreset,
     modelHeaders,
   }
 })

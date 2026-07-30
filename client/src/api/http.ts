@@ -75,31 +75,42 @@ export async function parseJson(res: Response) {
     const detailsField = (data as { details?: string }).details
     const errorText = typeof errorField === "string" ? errorField : ""
     const detailsText = typeof detailsField === "string" ? detailsField : ""
-    const text =
-      [errorText, detailsText].filter(Boolean).join("\n") ||
+    const combined = [errorText, detailsText].filter(Boolean).join("\n")
+    maybePromptFromMessage(combined)
+    // Prefer short error for UI; keep quota/rate hints from details when the
+    // top-level message is a generic provider failure.
+    let text =
+      errorText ||
+      (detailsText && !detailsText.trimStart().startsWith("{") ? detailsText : "") ||
       res.statusText ||
       "Request failed"
-    maybePromptFromMessage(text)
+    if (
+      detailsText &&
+      /余额|额度|欠费|quota|insufficient|rate limit|过于频繁/i.test(detailsText) &&
+      !/quota|balance|rate limit|余额|额度/i.test(errorText)
+    ) {
+      text = `${errorText || text}\n${detailsText.slice(0, 240)}`
+    }
     throw new Error(text)
   }
   return data
 }
 
-/** 根据服务端错误文案判断是否像缺密钥，是则打开对应密钥弹窗。 */
+/** 仅在本地确实未配置密钥时弹窗；勿把「密钥无效 / 模型不匹配」误当成未填写。 */
 function maybePromptFromMessage(message: string) {
   const lower = message.toLowerCase()
   const looksMissing =
     lower.includes("not configured") ||
-    lower.includes("api key") ||
-    lower.includes("api密钥") ||
-    lower.includes("密钥")
+    lower.includes("no api key") ||
+    lower.includes("api key required") ||
+    (lower.includes("缺少") && lower.includes("密钥")) ||
+    (lower.includes("未配置") && (lower.includes("密钥") || lower.includes("api")))
   if (!looksMissing) return
 
-  const kind: ApiKeyKind = lower.includes("fal")
-    ? "fal"
-    : lower.includes("text api") || lower.includes("文本")
-      ? "text"
-      : "gateway"
+  const keys = useApiKeysStore()
+  const kind: ApiKeyKind = lower.includes("fal") ? "fal" : "gateway"
+  if (kind === "fal" && keys.hasFal) return
+  if (kind === "gateway" && keys.hasGateway) return
   useApiKeyPromptStore().show(kind)
 }
 
@@ -135,22 +146,23 @@ export async function checkApiKey(): Promise<ApiKeyStatus> {
 export async function ensureKey(kind: ApiKeyKind): Promise<void> {
   requireLogin()
 
+  // Prompt enhance shares the image key — never prompt for a separate text key.
+  const resolved: ApiKeyKind = kind === "text" ? "gateway" : kind
+
   const keys = useApiKeysStore()
-  if (kind === "text" && keys.hasText) return
-  if (kind === "gateway" && keys.hasGateway) return
-  if (kind === "fal" && keys.hasFal) return
+  if (resolved === "gateway" && keys.hasGateway) return
+  if (resolved === "fal" && keys.hasFal) return
 
   try {
     const status = await checkApiKey()
-    if (kind === "text" && (status.textConfigured || status.configured)) return
-    if (kind === "gateway" && status.configured) return
-    if (kind === "fal" && status.falConfigured) return
+    if (resolved === "gateway" && status.configured) return
+    if (resolved === "fal" && status.falConfigured) return
   } catch {
     // 本地无密钥且状态检查失败 → 继续弹窗
   }
 
-  useApiKeyPromptStore().show(kind)
-  throw new ApiKeyRequiredError(kind)
+  useApiKeyPromptStore().show(resolved)
+  throw new ApiKeyRequiredError(resolved)
 }
 
 /** 图片 / 视觉相关接口使用 gateway（图像）密钥。 */
@@ -168,7 +180,9 @@ export async function ensureVideoKey(model?: string): Promise<void> {
   const opt = VIDEO_MODEL_OPTIONS.find((o) => o.id === id)
   const needsFal =
     opt?.needsFal === true ||
-    (!opt && /^(veo|kling|wan|minimax|seedance|fal-ai\/|bytedance\/)/i.test(id.trim()))
+    (!opt &&
+      /^(veo|kling|wan|minimax|seedance-2|fal-ai\/|bytedance\/)/i.test(id.trim()) &&
+      !/^doubao-seedance|^jimeng-seedance/i.test(id.trim()))
   if (needsFal) await ensureKey("fal")
   else await ensureKey("gateway")
 }
@@ -247,7 +261,7 @@ function maybeRecordAssets(route: UsageRoute, data: unknown, model?: string) {
       assets.add({ kind: media.kind, url: media.url, prompt, source, model })
     }
 
-    if (route === "storyboard-run" || route === "ad-run") {
+    if (route === "storyboard-run") {
       const state = obj.state as Record<string, unknown> | undefined
       if (!state) return
       const working = typeof state.workingPrompt === "string" ? state.workingPrompt : prompt

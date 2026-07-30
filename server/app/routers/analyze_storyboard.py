@@ -15,21 +15,15 @@ class AnalyzeRequest(BaseModel):
 async def analyze_storyboard(body: AnalyzeRequest):
     if not body.imageUrl:
         return JSONResponse({"error": "Image URL is required"}, status_code=400)
-    try:
-        panel_count, description, usage = await gateway.analyze_storyboard(body.imageUrl)
-        return {
-            "panelCount": panel_count,
-            "description": description,
-            "model": gateway._resolve_vision_model(),
-            "usage": usage,
-        }
-    except gateway.GatewayError as exc:
-        return JSONResponse(
-            {"error": exc.message, "details": exc.details},
-            status_code=exc.status_code,
-        )
-    except Exception as exc:
-        return JSONResponse(
-            {"error": "Failed to analyze storyboard", "details": str(exc)},
-            status_code=500,
-        )
+    # Soft-fail: CogView-only keys / unavailable vision models should not block upload.
+    panel_count, description, usage = await gateway.analyze_storyboard_or_default(
+        body.imageUrl,
+        default_panel_count=6,
+    )
+    return {
+        "panelCount": panel_count,
+        "description": description,
+        "model": gateway._resolve_vision_model(),
+        "usage": usage,
+        "softDefault": not bool(description),
+    }

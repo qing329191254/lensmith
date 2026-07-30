@@ -73,6 +73,8 @@ defineExpose({
   height: 100%;
   min-height: 0;
   background: #05070a;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .preview-stage {

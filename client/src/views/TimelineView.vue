@@ -62,6 +62,7 @@ const {
   isExporting: ffmpegIsExporting,
   exportProgress,
   exportPhase,
+  exportFrameLabel,
   downloadUrl,
   ffmpegError,
   loadFFmpeg,
@@ -164,6 +165,7 @@ async function handleStartExport(resolution: "720p" | "1080p") {
       :is-exporting="ffmpegIsExporting"
       :export-progress="exportProgress"
       :export-phase="exportPhase"
+      :export-frame-label="exportFrameLabel"
       :download-url="downloadUrl"
       :ffmpeg-error="ffmpegError"
       @close="exportModalOpen = false"
@@ -195,6 +197,8 @@ async function handleStartExport(resolution: "720p" | "1080p") {
   border-radius: 0.75rem;
   overflow: hidden;
   background: rgba(12, 17, 24, 0.35);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .editor-library {

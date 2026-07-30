@@ -24,13 +24,25 @@ def friendly_provider_error(
     )
     if authish:
         return (
-            "API key rejected. Key must match the selected model/endpoint: "
-            "Zhipu key → CogView models; Gemini/OpenAI → Vercel AI Gateway key "
-            "(or set a matching proxy Base URL in Workspace)."
+            "API key does not match the selected model. "
+            "Open Workspace and pick a matching image model, or update the key."
         )
 
     if status_code == 429 or "rate limit" in lower or "too many requests" in lower:
         return "Provider rate limit reached. Please wait a moment and try again."
+
+    if (
+        "insufficient" in lower
+        or "quota" in lower
+        or "balance" in lower
+        or "余额" in text
+        or "额度" in text
+        or "欠费" in text
+        or "充值" in text
+        or "account_overdue" in lower
+        or "1113" in text  # common Zhipu balance code
+    ):
+        return "Provider quota or balance exhausted. Top up or switch keys, then retry."
 
     if (
         "model" in lower

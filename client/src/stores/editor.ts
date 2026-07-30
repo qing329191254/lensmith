@@ -160,6 +160,97 @@ export const useEditorStore = defineStore("editor", () => {
     })
   }
 
+  /** Import remote URLs (e.g. storyboard videos) into the library and lay them out on V1. */
+  function importRemoteSequence(
+    items: Array<{
+      url: string
+      prompt?: string
+      duration?: number
+      thumbnailUrl?: string
+      type?: "video" | "image"
+    }>,
+    options: { replaceTimeline?: boolean; projectName?: string } = {},
+  ) {
+    const sequence = items.filter((item) => Boolean(item.url))
+    if (!sequence.length) return
+
+    const replaceTimeline = options.replaceTimeline !== false
+    pushHistory()
+    if (replaceTimeline) timelineClips.value = []
+    if (options.projectName) projectName.value = options.projectName
+
+    let cursor = replaceTimeline
+      ? 0
+      : timelineClips.value.reduce((max, c) => Math.max(max, c.start + c.duration), 0)
+
+    for (const [index, item] of sequence.entries()) {
+      const existing = media.value.find((m) => m.url === item.url)
+      const duration = item.duration && item.duration > 0 ? item.duration : MEDIA_CONSTANTS.DEFAULT_CLIP_DURATION
+      let mediaItem = existing
+
+      if (!mediaItem) {
+        const id = uid()
+        mediaItem = {
+          id,
+          url: item.url,
+          prompt: item.prompt?.trim() || `Clip ${index + 1}`,
+          duration,
+          aspectRatio: "16:9",
+          thumbnailUrl: item.thumbnailUrl,
+          status: "ready",
+          type: item.type || "video",
+        }
+        addMedia(mediaItem)
+
+        if (mediaItem.type === "video") {
+          const el = document.createElement("video")
+          el.crossOrigin = "anonymous"
+          el.preload = "metadata"
+          const mediaId = id
+          el.onloadedmetadata = () => {
+            const updates: Partial<MediaItem> = {}
+            if (el.videoWidth > 0 && el.videoHeight > 0) {
+              updates.resolution = { width: el.videoWidth, height: el.videoHeight }
+              const r = el.videoWidth / el.videoHeight
+              if (Math.abs(r - 16 / 9) < 0.1) updates.aspectRatio = "16:9"
+              else if (Math.abs(r - 9 / 16) < 0.1) updates.aspectRatio = "9:16"
+              else if (Math.abs(r - 1) < 0.1) updates.aspectRatio = "1:1"
+              else updates.aspectRatio = "custom"
+            }
+            if (Number.isFinite(el.duration) && el.duration > 0) {
+              updates.duration = el.duration
+              for (const clip of timelineClips.value) {
+                if (clip.mediaId !== mediaId) continue
+                const maxUsable = Math.max(0.5, el.duration - (clip.offset || 0))
+                if (clip.duration > maxUsable) updateClip(clip.id, { duration: maxUsable })
+              }
+            }
+            if (Object.keys(updates).length) updateMedia(mediaId, updates)
+          }
+          el.src = item.url
+        }
+      } else if (item.thumbnailUrl && !mediaItem.thumbnailUrl) {
+        updateMedia(mediaItem.id, { thumbnailUrl: item.thumbnailUrl })
+      }
+
+      timelineClips.value.push({
+        id: uid(),
+        mediaId: mediaItem.id,
+        trackId: "v1",
+        start: cursor,
+        duration: item.duration && item.duration > 0 ? item.duration : mediaItem.duration || duration,
+        offset: 0,
+        volume: 1,
+        speed: 1,
+      })
+      cursor += item.duration && item.duration > 0 ? item.duration : mediaItem.duration || duration
+    }
+
+    currentTime.value = 0
+    isPlaying.value = false
+    selectedClipIds.value = []
+  }
+
   function updateClip(clipId: string, changes: Partial<TimelineClip>, recordHistory = false) {
     if (recordHistory) pushHistory()
     const idx = timelineClips.value.findIndex((c) => c.id === clipId)
@@ -171,6 +262,49 @@ export const useEditorStore = defineStore("editor", () => {
     pushHistory()
     timelineClips.value = timelineClips.value.filter((c) => !clipIds.includes(c.id))
     selectedClipIds.value = selectedClipIds.value.filter((id) => !clipIds.includes(id))
+  }
+
+  /** Split selected clips (or the clip under the playhead) at currentTime. */
+  function splitAtPlayhead() {
+    const t = currentTime.value
+    const targets =
+      selectedClipIds.value.length > 0
+        ? selectedClipIds.value
+        : timelineClips.value
+            .filter((c) => t > c.start + 0.15 && t < c.start + c.duration - 0.15)
+            .map((c) => c.id)
+
+    const toSplit = targets
+      .map((id) => timelineClips.value.find((c) => c.id === id))
+      .filter((c): c is TimelineClip => {
+        if (!c || c.isLocked) return false
+        const local = t - c.start
+        return local > 0.15 && local < c.duration - 0.15
+      })
+
+    if (!toSplit.length) return
+
+    pushHistory()
+    const createdIds: string[] = []
+    for (const clip of toSplit) {
+      const leftDuration = t - clip.start
+      const rightDuration = clip.duration - leftDuration
+      updateClip(clip.id, { duration: leftDuration })
+      const rightId = uid()
+      timelineClips.value.push({
+        id: rightId,
+        mediaId: clip.mediaId,
+        trackId: clip.trackId,
+        start: t,
+        duration: rightDuration,
+        offset: clip.offset + leftDuration,
+        volume: clip.volume,
+        speed: clip.speed,
+        isLocked: clip.isLocked,
+      })
+      createdIds.push(rightId)
+    }
+    selectedClipIds.value = createdIds.length ? [createdIds[0]] : selectedClipIds.value
   }
 
   function selectClips(ids: string[]) {
@@ -282,8 +416,10 @@ export const useEditorStore = defineStore("editor", () => {
     removeMedia,
     importFile,
     addClipToTimeline,
+    importRemoteSequence,
     updateClip,
     deleteClips,
+    splitAtPlayhead,
     selectClips,
     selectMedia,
     setCurrentTime,

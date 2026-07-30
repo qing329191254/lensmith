@@ -155,7 +155,7 @@ export function usePlayback(refs: PlaybackRefs, isExporting: Ref<boolean>) {
     }
   }
 
-  async function waitForVideoReady(video: HTMLVideoElement | null) {
+  async function waitForVideoReady(video: HTMLVideoElement | null, timeoutMs = 2000) {
     if (!video || !video.src || video.style.opacity === "0") return
     if (video.readyState < 1) {
       await new Promise<void>((resolve) => {
@@ -164,7 +164,7 @@ export function usePlayback(refs: PlaybackRefs, isExporting: Ref<boolean>) {
           resolve()
         }
         video.addEventListener("loadedmetadata", h, { once: true })
-        setTimeout(resolve, 2000)
+        setTimeout(resolve, timeoutMs)
       })
     }
     if (video.seeking) {
@@ -174,7 +174,7 @@ export function usePlayback(refs: PlaybackRefs, isExporting: Ref<boolean>) {
           resolve()
         }
         video.addEventListener("seeked", h, { once: true })
-        setTimeout(resolve, 2000)
+        setTimeout(resolve, timeoutMs)
       })
     }
     if (video.readyState < 2) {
@@ -184,7 +184,7 @@ export function usePlayback(refs: PlaybackRefs, isExporting: Ref<boolean>) {
           resolve()
         }
         video.addEventListener("canplay", h, { once: true })
-        setTimeout(resolve, 2000)
+        setTimeout(resolve, timeoutMs)
       })
     }
   }

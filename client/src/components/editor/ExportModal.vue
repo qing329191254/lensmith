@@ -8,6 +8,7 @@ const props = defineProps<{
   isExporting: boolean
   exportProgress: number
   exportPhase: ExportPhase
+  exportFrameLabel?: string
   downloadUrl: string | null
   ffmpegError: string | null
 }>()
@@ -19,12 +20,26 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const resolution = ref<"720p" | "1080p">("1080p")
+const resolution = ref<"720p" | "1080p">("720p")
+const autoDownloaded = ref(false)
 
 watch(
   () => props.open,
   (v) => {
-    if (v) resolution.value = "1080p"
+    if (v) {
+      resolution.value = "720p"
+      autoDownloaded.value = false
+    }
+  },
+)
+
+watch(
+  () => [props.exportPhase, props.downloadUrl] as const,
+  ([phase, url]) => {
+    if (phase === "complete" && url && !autoDownloaded.value) {
+      autoDownloaded.value = true
+      triggerDownload(url)
+    }
   },
 )
 
@@ -32,12 +47,27 @@ function phaseLabel(phase: ExportPhase): string {
   const map: Record<ExportPhase, string> = {
     idle: t("timeline.exportPhaseIdle"),
     init: t("timeline.exportPhaseInit"),
+    fetch: t("timeline.exportPhaseFetch"),
     audio: t("timeline.exportPhaseAudio"),
     video: t("timeline.exportPhaseVideo"),
     encoding: t("timeline.exportPhaseEncoding"),
     complete: t("timeline.exportPhaseComplete"),
   }
   return map[phase]
+}
+
+function triggerDownload(url: string) {
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `lensmith-${Date.now()}.mp4`
+  a.rel = "noopener"
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
+function onDownloadClick() {
+  if (props.downloadUrl) triggerDownload(props.downloadUrl)
 }
 </script>
 
@@ -75,15 +105,29 @@ function phaseLabel(phase: ExportPhase): string {
           <p v-if="ffmpegError" class="error">{{ ffmpegError }}</p>
         </div>
 
+        <div v-else-if="exportPhase === 'complete' && downloadUrl" class="modal-body">
+          <p class="phase success-title">{{ t("timeline.exportPhaseComplete") }}</p>
+          <p class="hint success-hint">{{ t("timeline.exportReadyHint") }}</p>
+          <button type="button" class="download-btn" @click="onDownloadClick">
+            {{ t("timeline.download") }}
+          </button>
+        </div>
+
         <div v-else class="modal-body">
           <p class="phase">{{ phaseLabel(exportPhase) }}</p>
+          <p v-if="exportFrameLabel && (exportPhase === 'video' || exportPhase === 'fetch')" class="frame-label">
+            {{
+              exportPhase === "fetch"
+                ? t("timeline.exportFetchProgress", { label: exportFrameLabel })
+                : t("timeline.exportFrameProgress", { label: exportFrameLabel })
+            }}
+          </p>
           <div class="progress-bar">
             <div class="progress-fill" :style="{ width: `${exportProgress}%` }" />
           </div>
-          <p class="progress-text">{{ exportProgress }}%</p>
-          <a v-if="downloadUrl && exportPhase === 'complete'" :href="downloadUrl" download="export.mp4" class="download-link">
-            {{ t("timeline.download") }}
-          </a>
+          <p class="progress-text">{{ Math.round(exportProgress) }}%</p>
+          <p v-if="isExporting && exportPhase === 'video'" class="hint slow-hint">{{ t("timeline.exportSlowHint") }}</p>
+          <p v-if="ffmpegError" class="error">{{ ffmpegError }}</p>
         </div>
 
         <footer class="modal-footer">
@@ -93,7 +137,10 @@ function phaseLabel(phase: ExportPhase): string {
           <button v-else-if="exportPhase !== 'complete'" type="button" class="btn-primary" @click="emit('start', resolution)">
             {{ t("timeline.startExport") }}
           </button>
-          <button v-else type="button" class="btn-primary" @click="emit('close')">{{ t("timeline.done") }}</button>
+          <template v-else>
+            <button type="button" class="btn-secondary" @click="onDownloadClick">{{ t("timeline.downloadAgain") }}</button>
+            <button type="button" class="btn-primary" @click="emit('close')">{{ t("timeline.done") }}</button>
+          </template>
         </footer>
       </div>
     </div>
@@ -108,16 +155,16 @@ function phaseLabel(phase: ExportPhase): string {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.55);
+  padding: 1rem;
 }
 
 .modal {
-  width: min(420px, calc(100vw - 2rem));
-  background: var(--bg-elevated);
+  width: min(420px, 100%);
+  border-radius: 0.85rem;
   border: 1px solid var(--border);
-  border-radius: 0.75rem;
-  overflow: hidden;
+  background: var(--bg-elevated);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
 }
 
 .modal-header {
@@ -127,20 +174,21 @@ function phaseLabel(phase: ExportPhase): string {
   padding: 0.85rem 1rem;
   border-bottom: 1px solid var(--border);
 }
-
 .modal-header h2 {
   margin: 0;
-  font-size: 0.9375rem;
+  font-size: 1rem;
 }
-
 .close-btn {
-  font-size: 1.25rem;
-  color: var(--muted);
-  background: none;
   border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
 }
 .close-btn:disabled {
   opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .modal-body {
@@ -151,6 +199,31 @@ function phaseLabel(phase: ExportPhase): string {
   margin: 0 0 0.75rem;
   font-size: 0.8125rem;
   color: var(--muted);
+  line-height: 1.5;
+}
+
+.success-title {
+  color: var(--accent);
+}
+
+.success-hint {
+  margin-bottom: 1rem;
+}
+
+.download-btn {
+  display: block;
+  width: 100%;
+  border-radius: 0.55rem;
+  padding: 0.7rem 1rem;
+  background: var(--accent);
+  color: #1a120c;
+  font-size: 0.875rem;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+}
+.download-btn:hover {
+  filter: brightness(1.06);
 }
 
 .res-grid {
@@ -190,6 +263,17 @@ function phaseLabel(phase: ExportPhase): string {
   font-size: 0.875rem;
 }
 
+.frame-label {
+  margin: -0.35rem 0 0.65rem;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.slow-hint {
+  margin-top: 0.65rem;
+}
+
 .progress-bar {
   height: 0.5rem;
   border-radius: 999px;
@@ -208,14 +292,6 @@ function phaseLabel(phase: ExportPhase): string {
   text-align: center;
 }
 
-.download-link {
-  display: block;
-  margin-top: 0.75rem;
-  text-align: center;
-  color: var(--accent);
-  font-weight: 600;
-}
-
 .modal-footer {
   display: flex;
   justify-content: flex-end;
@@ -229,11 +305,13 @@ function phaseLabel(phase: ExportPhase): string {
   border-radius: 0.5rem;
   padding: 0.45rem 0.85rem;
   font-size: 0.8125rem;
+  cursor: pointer;
 }
 .btn-primary {
   background: var(--accent);
   color: #1a120c;
   font-weight: 600;
+  border: none;
 }
 .btn-secondary {
   background: var(--surface);

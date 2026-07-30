@@ -20,7 +20,6 @@ from app.request_keys import (
     set_request_keys,
 )
 from app.routers import (
-    ad_run,
     analyze_storyboard,
     auth,
     check_api_key,
@@ -88,7 +87,6 @@ app.include_router(generate_video.router, prefix=prefix, tags=["seq"])
 app.include_router(upscale.router, prefix=prefix, tags=["seq"])
 app.include_router(fal_proxy.router, prefix=prefix, tags=["seq"])
 app.include_router(storyboard_run.router, prefix=prefix, tags=["seq", "langgraph"])
-app.include_router(ad_run.router, prefix=prefix, tags=["seq", "langgraph", "ads"])
 
 
 @app.get("/health")

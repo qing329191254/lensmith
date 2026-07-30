@@ -31,7 +31,7 @@ export const useImageHistoryStore = defineStore("imageHistory", () => {
   }
 
   function add(item: Omit<ImageHistoryItem, "id" | "createdAt">) {
-    assets.add({
+    return assets.add({
       kind: "image",
       url: item.url,
       prompt: item.prompt,

@@ -78,7 +78,6 @@ onUnmounted(() => window.removeEventListener("keydown", onKey))
         <div class="hidden items-center gap-2 md:flex">
           <nav class="flex items-center gap-0.5 text-sm text-[var(--muted)]">
             <RouterLink class="nav-link" to="/storyboard">{{ t("nav.storyboard") }}</RouterLink>
-            <RouterLink class="nav-link" to="/ads">{{ t("nav.ads") }}</RouterLink>
             <RouterLink class="nav-link" to="/image-playground">{{ t("nav.images") }}</RouterLink>
             <RouterLink class="nav-link" to="/timeline">{{ t("nav.timeline") }}</RouterLink>
             <RouterLink class="nav-link" to="/demo">{{ t("nav.demo") }}</RouterLink>
@@ -115,7 +114,6 @@ onUnmounted(() => window.removeEventListener("keydown", onKey))
       >
         <div class="flex flex-col gap-1 text-sm text-[var(--muted)]">
           <RouterLink class="nav-link nav-link-mobile" to="/storyboard">{{ t("nav.storyboard") }}</RouterLink>
-          <RouterLink class="nav-link nav-link-mobile" to="/ads">{{ t("nav.ads") }}</RouterLink>
           <RouterLink class="nav-link nav-link-mobile" to="/image-playground">{{ t("nav.images") }}</RouterLink>
           <RouterLink class="nav-link nav-link-mobile" to="/timeline">{{ t("nav.timeline") }}</RouterLink>
           <RouterLink class="nav-link nav-link-mobile" to="/demo">{{ t("nav.demo") }}</RouterLink>

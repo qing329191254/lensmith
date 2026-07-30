@@ -21,6 +21,7 @@ VIDEO_CATALOG: dict[str, dict[str, Any]] = {
         "provider": "fal",
         "i2v": True,
         "first_last": True,
+        "generate_audio": True,
         "fal_i2v": "fal-ai/veo3.1/fast/image-to-video",
         "fal_fl": "fal-ai/veo3.1/fast/first-last-frame-to-video",
         "fal_style": "veo",
@@ -29,6 +30,7 @@ VIDEO_CATALOG: dict[str, dict[str, Any]] = {
         "provider": "fal",
         "i2v": True,
         "first_last": True,
+        "generate_audio": True,
         "fal_i2v": "fal-ai/veo3.1/image-to-video",
         "fal_fl": "fal-ai/veo3.1/first-last-frame-to-video",
         "fal_style": "veo",
@@ -37,6 +39,7 @@ VIDEO_CATALOG: dict[str, dict[str, Any]] = {
         "provider": "fal",
         "i2v": True,
         "first_last": True,
+        "generate_audio": False,
         "fal_i2v": "fal-ai/kling-video/v2.5-turbo/pro/image-to-video",
         "fal_style": "kling25",
     },
@@ -44,6 +47,7 @@ VIDEO_CATALOG: dict[str, dict[str, Any]] = {
         "provider": "fal",
         "i2v": True,
         "first_last": True,
+        "generate_audio": True,
         "fal_i2v": "fal-ai/kling-video/v3/pro/image-to-video",
         "fal_style": "kling3",
     },
@@ -51,6 +55,7 @@ VIDEO_CATALOG: dict[str, dict[str, Any]] = {
         "provider": "fal",
         "i2v": True,
         "first_last": True,
+        "generate_audio": True,
         "fal_i2v": "bytedance/seedance-2.0/fast/image-to-video",
         "fal_style": "seedance",
     },
@@ -58,6 +63,7 @@ VIDEO_CATALOG: dict[str, dict[str, Any]] = {
         "provider": "fal",
         "i2v": True,
         "first_last": False,
+        "generate_audio": False,
         "fal_i2v": "fal-ai/wan-25-preview/image-to-video",
         "fal_style": "wan25",
     },
@@ -65,6 +71,7 @@ VIDEO_CATALOG: dict[str, dict[str, Any]] = {
         "provider": "fal",
         "i2v": False,
         "first_last": True,
+        "generate_audio": False,
         "fal_fl": "fal-ai/wan/v2.2-a14b/image-to-video/turbo",
         "fal_style": "wan22",
     },
@@ -72,6 +79,7 @@ VIDEO_CATALOG: dict[str, dict[str, Any]] = {
         "provider": "fal",
         "i2v": True,
         "first_last": False,
+        "generate_audio": False,
         "fal_i2v": "fal-ai/minimax-video/image-to-video",
         "fal_style": "minimax",
     },
@@ -80,25 +88,54 @@ VIDEO_CATALOG: dict[str, dict[str, Any]] = {
         "provider": "compatible",
         "i2v": True,
         "first_last": True,
+        "with_audio": False,
         "api_model": "cogvideox-3",
     },
     "cogvideox-2": {
         "provider": "compatible",
         "i2v": True,
-        "first_last": True,
+        "first_last": False,
+        "with_audio": False,
         "api_model": "cogvideox-2",
     },
     "viduq1": {
         "provider": "compatible",
         "i2v": True,
         "first_last": True,
+        "with_audio": False,
         "api_model": "viduq1",
     },
     "vidu2-image": {
         "provider": "compatible",
         "i2v": True,
         "first_last": False,
+        "with_audio": False,
         "api_model": "vidu2-image",
+    },
+    # Volcengine Ark / 即梦同源 Seedance（与 Seedream 共用方舟 API Key）
+    "doubao-seedance-2-0-fast": {
+        "provider": "ark",
+        "i2v": True,
+        "first_last": True,
+        "api_model": "doubao-seedance-2-0-fast-260128",
+    },
+    "doubao-seedance-2-0": {
+        "provider": "ark",
+        "i2v": True,
+        "first_last": True,
+        "api_model": "doubao-seedance-2-0-260128",
+    },
+    "doubao-seedance-2-0-mini": {
+        "provider": "ark",
+        "i2v": True,
+        "first_last": True,
+        "api_model": "doubao-seedance-2-0-mini-260128",
+    },
+    "jimeng-seedance": {
+        "provider": "ark",
+        "i2v": True,
+        "first_last": True,
+        "api_model": "doubao-seedance-2-0-fast-260128",
     },
 }
 
@@ -130,6 +167,7 @@ def generate_via_fal(
     meta = VIDEO_CATALOG.get(model_id) or VIDEO_CATALOG["veo3-fast"]
     is_fl = bool(linked_image_url)
     style = meta.get("fal_style") or "veo"
+    want_audio = bool(meta.get("generate_audio"))
 
     if is_fl and not meta.get("first_last"):
         raise fal_service.FalError(
@@ -158,7 +196,7 @@ def generate_via_fal(
             "prompt": prompt,
             "start_image_url": image_url,
             "duration": "5" if duration < 8 else "10",
-            "generate_audio": False,
+            "generate_audio": want_audio,
         }
         if linked_image_url:
             payload["end_image_url"] = linked_image_url
@@ -173,7 +211,7 @@ def generate_via_fal(
             "resolution": "720p",
             "duration": video_duration,
             "aspect_ratio": aspect_ratio or "auto",
-            "generate_audio": False,
+            "generate_audio": want_audio,
         }
         if linked_image_url:
             payload["end_image_url"] = linked_image_url
@@ -222,7 +260,7 @@ def generate_via_fal(
         )
         return {**_serialize(result), "model": model_id}
 
-    # Veo family
+    # Veo family — native audio when the model supports it
     if is_fl:
         result = fal_service.subscribe(
             meta["fal_fl"],
@@ -233,7 +271,7 @@ def generate_via_fal(
                 "duration": "8s",
                 "aspect_ratio": aspect_ratio or "16:9",
                 "resolution": "720p",
-                "generate_audio": True,
+                "generate_audio": want_audio,
             },
         )
     else:
@@ -244,6 +282,7 @@ def generate_via_fal(
                 "image_url": image_url,
                 "duration": "8s",
                 "aspect_ratio": aspect_ratio or "16:9",
+                "generate_audio": want_audio,
             },
         )
     return {**_serialize(result), "model": model_id}
@@ -256,6 +295,7 @@ async def generate_via_compatible_video(
     image_url: str,
     linked_image_url: str | None,
     aspect_ratio: str,
+    duration: float = 5,
 ) -> dict[str, Any]:
     """Zhipu-style / OpenAI-compatible POST /videos/generations + async poll."""
     api_key = resolve_ai_gateway_key()
@@ -286,6 +326,9 @@ async def generate_via_compatible_video(
     else:
         image_payload = image_url
 
+    # Zhipu CogVideoX accepts 5 or 10 seconds.
+    duration_sec = 10 if float(duration or 5) >= 7.5 else 5
+
     create_body: dict[str, Any] = {
         "model": api_model,
         "prompt": prompt,
@@ -294,6 +337,7 @@ async def generate_via_compatible_video(
         "with_audio": bool(meta.get("with_audio", False)),
         "size": size,
         "fps": int(meta.get("fps", 30)),
+        "duration": duration_sec,
     }
 
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
@@ -398,6 +442,19 @@ async def generate_video(
             image_url=image_url.strip(),
             linked_image_url=linked_image_url.strip() if linked_image_url else None,
             aspect_ratio=aspect_ratio or "16:9",
+            duration=duration,
+        )
+
+    if meta["provider"] == "ark":
+        from app.services import ark_jimeng
+
+        return await ark_jimeng.generate_seedance_video(
+            prompt=prompt.strip(),
+            image_url=image_url.strip(),
+            linked_image_url=linked_image_url.strip() if linked_image_url else None,
+            aspect_ratio=aspect_ratio or "16:9",
+            duration=duration,
+            model=str(meta.get("api_model") or model_id),
         )
 
     return generate_via_fal(

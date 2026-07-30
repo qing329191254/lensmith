@@ -14,7 +14,6 @@ export type UsageRoute =
   | "generate-video"
   | "upscale"
   | "storyboard-run"
-  | "ad-run"
   | "other"
 
 export interface UsageEvent {
@@ -47,7 +46,6 @@ const ROUTE_TOKEN_FALLBACK: Record<UsageRoute, number> = {
   "generate-video": 0,
   upscale: 0,
   "storyboard-run": 6000,
-  "ad-run": 7000,
   other: 400,
 }
 
