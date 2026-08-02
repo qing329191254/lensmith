@@ -7,6 +7,11 @@ export type AuthUser = {
   created_at?: string | null
 }
 
+export type CaptchaResponse = {
+  captcha_token: string
+  image: string
+}
+
 export type TokenResponse = {
   access_token: string
   token_type: string
@@ -36,20 +41,45 @@ function authHeaders(token?: string): Headers {
   return headers
 }
 
-export async function registerRequest(username: string, password: string): Promise<TokenResponse> {
+export async function fetchCaptcha(): Promise<CaptchaResponse> {
+  const res = await fetch("/api/auth/captcha")
+  return (await parseAuthJson(res)) as CaptchaResponse
+}
+
+export async function registerRequest(
+  username: string,
+  password: string,
+  captchaToken: string,
+  captchaCode: string,
+): Promise<TokenResponse> {
   const res = await fetch("/api/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({
+      username,
+      password,
+      captcha_token: captchaToken,
+      captcha_code: captchaCode,
+    }),
   })
   return (await parseAuthJson(res)) as TokenResponse
 }
 
-export async function loginRequest(username: string, password: string): Promise<TokenResponse> {
+export async function loginRequest(
+  username: string,
+  password: string,
+  captchaToken: string,
+  captchaCode: string,
+): Promise<TokenResponse> {
   const res = await fetch("/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({
+      username,
+      password,
+      captcha_token: captchaToken,
+      captcha_code: captchaCode,
+    }),
   })
   return (await parseAuthJson(res)) as TokenResponse
 }

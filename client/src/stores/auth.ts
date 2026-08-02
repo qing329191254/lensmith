@@ -52,15 +52,25 @@ export const useAuthStore = defineStore("auth", () => {
     }
   }
 
-  async function login(username: string, password: string) {
-    const data = await loginRequest(username, password)
+  async function login(
+    username: string,
+    password: string,
+    captchaToken: string,
+    captchaCode: string,
+  ) {
+    const data = await loginRequest(username, password, captchaToken, captchaCode)
     applySession(data.access_token, data.user)
     const { syncUserCloudData } = await import("@/lib/cloud-sync")
     await syncUserCloudData()
   }
 
-  async function register(username: string, password: string) {
-    const data = await registerRequest(username, password)
+  async function register(
+    username: string,
+    password: string,
+    captchaToken: string,
+    captchaCode: string,
+  ) {
+    const data = await registerRequest(username, password, captchaToken, captchaCode)
     applySession(data.access_token, data.user)
     const { syncUserCloudData } = await import("@/lib/cloud-sync")
     await syncUserCloudData()

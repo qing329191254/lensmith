@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue"
+import { computed, onMounted, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { useI18n } from "vue-i18n"
+import { fetchCaptcha } from "@/api/auth"
 import { useAuthStore } from "@/stores/auth"
 import { useToastStore } from "@/stores/toast"
 
@@ -9,6 +10,14 @@ import { useToastStore } from "@/stores/toast"
 const USERNAME_RE = /^[\u4e00-\u9fffa-zA-Z0-9_]{3,20}$/
 /** 密码 6–32 位，至少含字母和数字 */
 const PASSWORD_RE = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]{6,32}$/
+
+const CAPTCHA_MSG: Record<string, string> = {
+  "Captcha is required": "auth.errorCaptchaRequired",
+  "Captcha expired": "auth.errorCaptchaExpired",
+  "Invalid captcha": "auth.errorCaptchaInvalid",
+  "Captcha already used": "auth.errorCaptchaUsed",
+  "Incorrect captcha": "auth.errorCaptchaIncorrect",
+}
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -20,6 +29,10 @@ const mode = ref<"login" | "register">("login")
 const username = ref("")
 const password = ref("")
 const confirm = ref("")
+const captchaCode = ref("")
+const captchaToken = ref("")
+const captchaImage = ref("")
+const captchaLoading = ref(false)
 const showPassword = ref(false)
 const showConfirm = ref(false)
 const loading = ref(false)
@@ -30,11 +43,37 @@ const redirectTo = computed(() => {
   return typeof raw === "string" && raw.startsWith("/") ? raw : "/"
 })
 
+async function loadCaptcha() {
+  captchaLoading.value = true
+  try {
+    const data = await fetchCaptcha()
+    captchaToken.value = data.captcha_token
+    captchaImage.value = data.image
+    captchaCode.value = ""
+  } catch (e) {
+    captchaToken.value = ""
+    captchaImage.value = ""
+    error.value = e instanceof Error ? e.message : t("auth.errorCaptchaLoad")
+  } finally {
+    captchaLoading.value = false
+  }
+}
+
+onMounted(() => {
+  void loadCaptcha()
+})
+
 watch(mode, () => {
   error.value = ""
   showPassword.value = false
   showConfirm.value = false
+  void loadCaptcha()
 })
+
+function mapError(message: string): string {
+  const key = CAPTCHA_MSG[message]
+  return key ? t(key) : message
+}
 
 function validate(): boolean {
   const name = username.value.trim()
@@ -51,6 +90,10 @@ function validate(): boolean {
     error.value = t("auth.errorConfirm")
     return false
   }
+  if (!captchaToken.value || !captchaCode.value.trim()) {
+    error.value = t("auth.errorCaptchaRequired")
+    return false
+  }
   return true
 }
 
@@ -60,18 +103,22 @@ async function submit() {
 
   const name = username.value.trim()
   const pass = password.value
+  const code = captchaCode.value.trim()
+  const token = captchaToken.value
   loading.value = true
   try {
     if (mode.value === "login") {
-      await auth.login(name, pass)
+      await auth.login(name, pass, token, code)
       toast.success(t("auth.toastLoginSuccess", { name }))
     } else {
-      await auth.register(name, pass)
+      await auth.register(name, pass, token, code)
       toast.success(t("auth.toastRegisterSuccess", { name }))
     }
     await router.replace(redirectTo.value)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : t("auth.errorGeneric")
+    const raw = e instanceof Error ? e.message : t("auth.errorGeneric")
+    error.value = mapError(raw)
+    await loadCaptcha()
   } finally {
     loading.value = false
   }
@@ -170,6 +217,41 @@ async function submit() {
               </svg>
             </button>
           </div>
+        </label>
+
+        <label class="field">
+          <span>{{ t("auth.captcha") }}</span>
+          <div class="captcha-row">
+            <input
+              v-model="captchaCode"
+              type="text"
+              class="captcha-input"
+              autocomplete="off"
+              autocapitalize="characters"
+              spellcheck="false"
+              required
+              maxlength="8"
+              :placeholder="t('auth.captchaPlaceholder')"
+            />
+            <button
+              type="button"
+              class="captcha-img-btn"
+              :disabled="captchaLoading"
+              :aria-label="t('auth.captchaRefresh')"
+              :title="t('auth.captchaRefresh')"
+              @click="loadCaptcha"
+            >
+              <img
+                v-if="captchaImage"
+                :src="captchaImage"
+                class="captcha-img"
+                alt=""
+                draggable="false"
+              />
+              <span v-else class="captcha-fallback">{{ captchaLoading ? "…" : t("auth.captchaRefresh") }}</span>
+            </button>
+          </div>
+          <span class="rule">{{ t("auth.captchaRule") }}</span>
         </label>
 
         <p v-if="error" class="error">{{ error }}</p>
@@ -292,6 +374,47 @@ async function submit() {
   font-size: 0.72rem;
   color: rgba(148, 163, 184, 0.9);
   line-height: 1.35;
+}
+.captcha-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.55rem;
+  align-items: stretch;
+}
+.captcha-input {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+.captcha-img-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 8.75rem;
+  height: 2.65rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  background: rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  cursor: pointer;
+}
+.captcha-img-btn:hover:not(:disabled) {
+  border-color: rgba(232, 168, 124, 0.45);
+}
+.captcha-img-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+.captcha-img {
+  display: block;
+  width: 140px;
+  height: 48px;
+  object-fit: cover;
+}
+.captcha-fallback {
+  font-size: 0.75rem;
+  color: var(--muted);
+  padding: 0 0.75rem;
 }
 .error {
   margin: 0;

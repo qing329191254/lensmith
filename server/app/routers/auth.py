@@ -11,6 +11,7 @@ from app.db import get_db
 from app.deps import get_current_user, require_auth_config
 from app.models import User
 from app.schemas.auth import (
+    CaptchaResponse,
     ChangePasswordRequest,
     LoginRequest,
     RegisterRequest,
@@ -19,6 +20,7 @@ from app.schemas.auth import (
     UserOut,
 )
 from app.services.auth_tokens import create_access_token, hash_password, verify_password
+from app.services.captcha import create_captcha, verify_captcha
 from app.services.avatars import (
     ALLOWED_EXT,
     CONTENT_TYPE_EXT,
@@ -72,6 +74,13 @@ def user_to_out(user: User) -> UserOut:
     )
 
 
+@router.get("/captcha", response_model=CaptchaResponse)
+def captcha() -> CaptchaResponse:
+    require_auth_config()
+    token, image = create_captcha()
+    return CaptchaResponse(captcha_token=token, image=image)
+
+
 @router.post("/register", response_model=TokenResponse)
 def register(body: RegisterRequest, db: Session = Depends(get_db)) -> TokenResponse:
     require_auth_config()
@@ -80,6 +89,7 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)) -> TokenRespo
     exists = db.scalar(select(User).where(User.username == username))
     if exists:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already taken")
+    verify_captcha(body.captcha_token, body.captcha_code)
 
     user = User(username=username, password_hash=hash_password(body.password))
     db.add(user)
@@ -95,6 +105,7 @@ def login(body: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
     require_auth_config()
     username = body.username.strip()
     _validate_credentials(username, body.password)
+    verify_captcha(body.captcha_token, body.captcha_code)
     user = db.scalar(select(User).where(User.username == username))
     if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(
