@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from "vue"
+import { computed, ref, watch } from "vue"
 import { storeToRefs } from "pinia"
 import EditorHeader from "@/components/editor/EditorHeader.vue"
 import ExportModal from "@/components/editor/ExportModal.vue"
@@ -22,6 +22,8 @@ const {
   isPlaying,
   history,
   future,
+  timelineClips,
+  mediaMap,
 } = storeToRefs(store)
 
 const previewRef = ref<InstanceType<typeof PreviewPlayer> | null>(null)
@@ -76,6 +78,13 @@ const {
 
 watch(ffmpegIsExporting, (v) => {
   isExporting.value = v
+})
+
+const previewEmpty = computed(() => {
+  return !timelineClips.value.some((clip) => {
+    const item = mediaMap.value[clip.mediaId]
+    return item?.type === "video" || item?.type === "image"
+  })
 })
 
 async function handleSave() {
@@ -149,6 +158,7 @@ async function handleStartExport(resolution: "720p" | "1080p") {
           :duration="duration"
           :is-playing="isPlaying"
           :is-exporting="ffmpegIsExporting"
+          :is-empty="previewEmpty"
           @toggle-play="store.togglePlay()"
           @seek="playback.handleSeek($event)"
         />
@@ -223,7 +233,7 @@ async function handleStartExport(resolution: "720p" | "1080p") {
 }
 
 .editor-timeline {
-  height: 11rem;
+  height: 12rem;
   flex-shrink: 0;
 }
 
@@ -241,7 +251,7 @@ async function handleStartExport(resolution: "720p" | "1080p") {
   }
 
   .editor-timeline {
-    height: 13.5rem;
+    height: 14.5rem;
   }
 }
 </style>

@@ -12,6 +12,8 @@ export interface PlaybackRefs {
   canvasRef: Ref<HTMLCanvasElement | null>
 }
 
+type VideoSlot = "A" | "B"
+
 export function usePlayback(refs: PlaybackRefs, isExporting: Ref<boolean>) {
   const store = useEditorStore()
   const { timelineClips, tracks, mediaMap, isPlaying, currentTime, duration } = storeToRefs(store)
@@ -22,79 +24,116 @@ export function usePlayback(refs: PlaybackRefs, isExporting: Ref<boolean>) {
   const lastStateUpdateRef = ref(0)
   const STATE_UPDATE_INTERVAL = 1000 / 30
 
+  /** 当前负责显示的 video 槽位；另一槽预加载下一镜 */
+  const activeSlot = ref<VideoSlot>("A")
+  /** 各槽当前绑定的 timeline clip id */
+  const clipOnSlot = ref<Record<VideoSlot, string | null>>({ A: null, B: null })
+
   watch(currentTime, (t) => {
     currentTimeRef.value = t
   })
+
+  function otherSlot(slot: VideoSlot): VideoSlot {
+    return slot === "A" ? "B" : "A"
+  }
+
+  function playerOf(slot: VideoSlot): HTMLVideoElement | null {
+    return slot === "A" ? refs.videoRefA.value : refs.videoRefB.value
+  }
 
   function getActiveVideoClip(time: number): TimelineClip | undefined {
     return tracks.value
       .filter((t) => t.type === "video")
       .reverse()
-      .map((t) => timelineClips.value.find((c) => c.trackId === t.id && time >= c.start && time < c.start + c.duration))
+      .map((t) =>
+        timelineClips.value.find((c) => c.trackId === t.id && time >= c.start && time < c.start + c.duration),
+      )
       .find((c) => c !== undefined)
   }
 
-  function syncMediaToTime(time: number, isExportingNow = false) {
-    const playerA = refs.videoRefA.value
-    const playerB = refs.videoRefB.value
-    const imageEl = refs.imageRef.value
-    if (!playerA || !playerB) return
+  function isVideoMediaClip(clip: TimelineClip): boolean {
+    return mediaMap.value[clip.mediaId]?.type === "video"
+  }
 
-    const activeClip = getActiveVideoClip(time)
-    const activeTrack = tracks.value.find((t) => t.id === activeClip?.trackId)
-    const trackVolume = activeTrack?.volume ?? 1
-    const clipVolume = activeClip?.volume ?? 1
-    const isMuted = activeTrack?.isMuted
-    const effectiveVolume = isMuted ? 0 : trackVolume * clipVolume
+  /** 时间轴上按 start 排序的视频素材片段 */
+  function getOrderedVideoClips(): TimelineClip[] {
+    return timelineClips.value
+      .filter((c) => {
+        const track = tracks.value.find((t) => t.id === c.trackId)
+        return track?.type === "video" && isVideoMediaClip(c)
+      })
+      .slice()
+      .sort((a, b) => a.start - b.start || a.id.localeCompare(b.id))
+  }
 
-    const setPlayerState = (player: HTMLVideoElement | null, clip: TimelineClip | undefined, opacity: number) => {
-      if (player && clip) {
-        const mediaItem = mediaMap.value[clip.mediaId]
-        if (mediaItem?.type === "video") {
-          if (player.src !== mediaItem.url) player.src = mediaItem.url
-          const timeInClip = time - clip.start + clip.offset
-          if (isExportingNow || Math.abs(player.currentTime - timeInClip) > 0.1) {
-            player.currentTime = timeInClip
-          }
-          if (isExportingNow) player.pause()
-          else if (isPlaying.value) player.play().catch(() => {})
-          else player.pause()
-          player.muted = effectiveVolume === 0
-          player.volume = effectiveVolume
-          player.style.opacity = String(opacity)
-        } else {
-          player.pause()
-          player.style.opacity = "0"
-        }
-      } else if (player) {
-        player.pause()
-        player.style.opacity = String(opacity)
-      }
+  /** 预加载目标：当前视频镜之后的下一段视频（跳过中间的图片镜） */
+  function getNextVideoClip(time: number, active: TimelineClip | undefined): TimelineClip | undefined {
+    const clips = getOrderedVideoClips()
+    if (active && isVideoMediaClip(active)) {
+      const activeEnd = active.start + active.duration
+      return clips.find((c) => c.id !== active.id && c.start >= activeEnd - 0.001)
+    }
+    return clips.find((c) => c.start > time)
+  }
+
+  function hidePlayer(player: HTMLVideoElement | null) {
+    if (!player) return
+    player.pause()
+    player.style.opacity = "0"
+  }
+
+  /**
+   * 把某个 clip 准备到指定 video 元素上。
+   * standby 预加载时 wantPlay=false、opacity=0，只 seek 到片头 offset。
+   */
+  function prepareClipOnPlayer(
+    player: HTMLVideoElement,
+    clip: TimelineClip,
+    mediaTime: number,
+    opts: {
+      wantPlay: boolean
+      opacity: number
+      volume: number
+      muted: boolean
+      forceSeek?: boolean
+    },
+  ): void {
+    const mediaItem = mediaMap.value[clip.mediaId]
+    if (!mediaItem || mediaItem.type !== "video") {
+      hidePlayer(player)
+      return
     }
 
-    if (imageEl) {
-      if (activeClip) {
-        const mediaItem = mediaMap.value[activeClip.mediaId]
-        if (mediaItem?.type === "image") {
-          if (imageEl.src !== mediaItem.url) imageEl.src = mediaItem.url
-          imageEl.style.opacity = "1"
-          playerA.style.opacity = "0"
-          playerB.style.opacity = "0"
-        } else {
-          imageEl.style.opacity = "0"
-          setPlayerState(playerA, activeClip, activeClip ? 1 : 0)
-          playerB.style.opacity = "0"
-        }
-      } else {
-        imageEl.style.opacity = "0"
-        setPlayerState(playerA, undefined, 0)
-        playerB.style.opacity = "0"
+    const srcChanged = player.src !== mediaItem.url
+    if (srcChanged) {
+      player.src = mediaItem.url
+      player.load()
+    }
+
+    if (
+      player.readyState >= HTMLMediaElement.HAVE_METADATA &&
+      !player.seeking &&
+      (srcChanged || opts.forceSeek || Math.abs(player.currentTime - mediaTime) > 0.1)
+    ) {
+      player.currentTime = Math.max(0, mediaTime)
+    }
+
+    player.muted = opts.muted
+    player.volume = opts.volume
+    player.style.opacity = String(opts.opacity)
+
+    if (opts.wantPlay) {
+      if (player.paused && player.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        player.play().then(() => {
+          if (!isPlaying.value) player.pause()
+        }).catch(() => {})
       }
     } else {
-      setPlayerState(playerA, activeClip, activeClip ? 1 : 0)
-      playerB.style.opacity = "0"
+      player.pause()
     }
+  }
 
+  function syncAudio(time: number, isExportingNow: boolean) {
     tracks.value
       .filter((t: Track) => t.type === "audio")
       .forEach((track) => {
@@ -108,11 +147,18 @@ export function usePlayback(refs: PlaybackRefs, isExporting: Ref<boolean>) {
           if (mediaItem) {
             if (audioEl.src !== mediaItem.url) audioEl.src = mediaItem.url
             const timeInClip = time - activeAudioClip.start + activeAudioClip.offset
-            if (isExportingNow || Math.abs(audioEl.currentTime - timeInClip) > 0.1) {
+            if (
+              audioEl.readyState >= HTMLMediaElement.HAVE_METADATA &&
+              !audioEl.seeking &&
+              (isExportingNow || Math.abs(audioEl.currentTime - timeInClip) > 0.1)
+            ) {
               audioEl.currentTime = timeInClip
             }
-            if (isPlaying.value && !isExportingNow) audioEl.play().catch(() => {})
-            else audioEl.pause()
+            if (isPlaying.value && !isExportingNow) {
+              if (audioEl.paused) audioEl.play().catch(() => {})
+            } else {
+              audioEl.pause()
+            }
             const clipVol = activeAudioClip.volume ?? 1
             audioEl.volume = track.isMuted ? 0 : (track.volume ?? 1) * clipVol
           }
@@ -122,15 +168,173 @@ export function usePlayback(refs: PlaybackRefs, isExporting: Ref<boolean>) {
       })
   }
 
+  function syncMediaToTime(time: number, isExportingNow = false) {
+    const playerA = refs.videoRefA.value
+    const playerB = refs.videoRefB.value
+    const imageEl = refs.imageRef.value
+    if (!playerA || !playerB) return
+
+    const activeClip = getActiveVideoClip(time)
+    const activeMedia = activeClip ? mediaMap.value[activeClip.mediaId] : undefined
+
+    // 导出逐帧：固定用 A，不做交替预加载，逻辑更稳
+    if (isExportingNow) {
+      activeSlot.value = "A"
+      clipOnSlot.value = { A: activeClip?.id ?? null, B: null }
+      hidePlayer(playerB)
+      if (imageEl) imageEl.style.opacity = "0"
+      if (activeClip && activeMedia?.type === "video") {
+        const mediaTime = time - activeClip.start + activeClip.offset
+        prepareClipOnPlayer(playerA, activeClip, mediaTime, {
+          wantPlay: false,
+          opacity: 1,
+          volume: 0,
+          muted: true,
+          forceSeek: true,
+        })
+      } else if (activeClip && activeMedia?.type === "image" && imageEl) {
+        hidePlayer(playerA)
+        if (imageEl.src !== activeMedia.url) imageEl.src = activeMedia.url
+        imageEl.style.opacity = "1"
+      } else {
+        hidePlayer(playerA)
+      }
+      syncAudio(time, true)
+      return
+    }
+
+    const activeTrack = tracks.value.find((t) => t.id === activeClip?.trackId)
+    const trackVolume = activeTrack?.volume ?? 1
+    const clipVolume = activeClip?.volume ?? 1
+    const isMuted = Boolean(activeTrack?.isMuted)
+    const effectiveVolume = isMuted ? 0 : trackVolume * clipVolume
+    const wantPlay = isPlaying.value
+
+    // —— 图片镜头：隐藏两个 video，仍用待机槽预加载下一视频 —— //
+    if (activeClip && activeMedia?.type === "image") {
+      if (imageEl) {
+        if (imageEl.src !== activeMedia.url) imageEl.src = activeMedia.url
+        imageEl.style.opacity = "1"
+      }
+      hidePlayer(playerA)
+      hidePlayer(playerB)
+      // 图片期间不占槽位绑定，避免误 swap
+      const standbySlot = otherSlot(activeSlot.value)
+      const nextClip = getNextVideoClip(time, activeClip)
+      if (nextClip) {
+        const standby = playerOf(standbySlot)
+        if (standby) {
+          prepareClipOnPlayer(standby, nextClip, nextClip.offset, {
+            wantPlay: false,
+            opacity: 0,
+            volume: 0,
+            muted: true,
+            forceSeek: clipOnSlot.value[standbySlot] !== nextClip.id,
+          })
+          clipOnSlot.value = { ...clipOnSlot.value, [standbySlot]: nextClip.id }
+        }
+      }
+      syncAudio(time, false)
+      return
+    }
+
+    if (imageEl) imageEl.style.opacity = "0"
+
+    // —— 无活动视频镜 —— //
+    if (!activeClip || activeMedia?.type !== "video") {
+      hidePlayer(playerA)
+      hidePlayer(playerB)
+      const nextClip = getNextVideoClip(time, undefined)
+      const standbySlot = otherSlot(activeSlot.value)
+      if (nextClip) {
+        const standby = playerOf(standbySlot)
+        if (standby) {
+          prepareClipOnPlayer(standby, nextClip, nextClip.offset, {
+            wantPlay: false,
+            opacity: 0,
+            volume: 0,
+            muted: true,
+            forceSeek: clipOnSlot.value[standbySlot] !== nextClip.id,
+          })
+          clipOnSlot.value = { ...clipOnSlot.value, [standbySlot]: nextClip.id }
+        }
+      }
+      syncAudio(time, false)
+      return
+    }
+
+    // —— 视频镜：若待机槽已预加载好当前镜，则切换主槽 —— //
+    let slot = activeSlot.value
+    const standbySlot = otherSlot(slot)
+    if (clipOnSlot.value[standbySlot] === activeClip.id && clipOnSlot.value[slot] !== activeClip.id) {
+      hidePlayer(playerOf(slot))
+      slot = standbySlot
+      activeSlot.value = slot
+    }
+
+    const activePlayer = playerOf(slot)
+    if (!activePlayer) return
+
+    const mediaTime = time - activeClip.start + activeClip.offset
+    const needBind = clipOnSlot.value[slot] !== activeClip.id
+    prepareClipOnPlayer(activePlayer, activeClip, mediaTime, {
+      wantPlay,
+      opacity: 1,
+      volume: effectiveVolume,
+      muted: effectiveVolume === 0,
+      forceSeek: needBind,
+    })
+    clipOnSlot.value = { ...clipOnSlot.value, [slot]: activeClip.id }
+
+    // —— 待机槽预加载下一视频镜 —— //
+    const nextClip = getNextVideoClip(time, activeClip)
+    const nextSlot = otherSlot(slot)
+    const standbyPlayer = playerOf(nextSlot)
+    if (nextClip && standbyPlayer) {
+      const already = clipOnSlot.value[nextSlot] === nextClip.id
+      prepareClipOnPlayer(standbyPlayer, nextClip, nextClip.offset, {
+        wantPlay: false,
+        opacity: 0,
+        volume: 0,
+        muted: true,
+        forceSeek: !already,
+      })
+      if (!already) {
+        clipOnSlot.value = { ...clipOnSlot.value, [nextSlot]: nextClip.id }
+      }
+    } else if (standbyPlayer) {
+      hidePlayer(standbyPlayer)
+      if (clipOnSlot.value[nextSlot] !== null) {
+        clipOnSlot.value = { ...clipOnSlot.value, [nextSlot]: null }
+      }
+    }
+
+    syncAudio(time, false)
+  }
+
+  function visibleVideoPlayer(): HTMLVideoElement | null {
+    const a = refs.videoRefA.value
+    const b = refs.videoRefB.value
+    if (a && Number.parseFloat(a.style.opacity || "0") > 0) return a
+    if (b && Number.parseFloat(b.style.opacity || "0") > 0) return b
+    return playerOf(activeSlot.value)
+  }
+
   function drawFrameToCanvas(ctx: CanvasRenderingContext2D, width: number, height: number, time: number) {
     ctx.fillStyle = "#000000"
     ctx.fillRect(0, 0, width, height)
 
     const activeClip = getActiveVideoClip(time)
 
-    const drawScaled = (source: CanvasImageSource, sw?: number, sh?: number) => {
-      const vW = sw ?? ("videoWidth" in source ? (source as HTMLVideoElement).videoWidth : (source as HTMLImageElement).naturalWidth)
-      const vH = sh ?? ("videoHeight" in source ? (source as HTMLVideoElement).videoHeight : (source as HTMLImageElement).naturalHeight)
+    const drawScaled = (source: CanvasImageSource) => {
+      const vW =
+        "videoWidth" in source
+          ? (source as HTMLVideoElement).videoWidth
+          : (source as HTMLImageElement).naturalWidth
+      const vH =
+        "videoHeight" in source
+          ? (source as HTMLVideoElement).videoHeight
+          : (source as HTMLImageElement).naturalHeight
       if (!vW || !vH) return
       const scale = Math.min(width / vW, height / vH)
       const dw = vW * scale
@@ -145,11 +349,9 @@ export function usePlayback(refs: PlaybackRefs, isExporting: Ref<boolean>) {
       if (mediaItem?.type === "image" && refs.imageRef.value?.complete) {
         drawScaled(refs.imageRef.value)
       } else {
-        const opacityA = Number.parseFloat(refs.videoRefA.value?.style.opacity || "0")
-        if (opacityA > 0 && refs.videoRefA.value) {
-          ctx.globalAlpha = opacityA
-          drawScaled(refs.videoRefA.value)
-          ctx.globalAlpha = 1
+        const video = visibleVideoPlayer()
+        if (video && Number.parseFloat(video.style.opacity || "0") > 0) {
+          drawScaled(video)
         }
       }
     }
@@ -199,8 +401,28 @@ export function usePlayback(refs: PlaybackRefs, isExporting: Ref<boolean>) {
     syncMediaToTime(time, false)
   }
 
+  /** 当前显示中的视频尚未就绪时卡住时钟 */
+  function shouldStallForVideo(time: number): boolean {
+    const clip = getActiveVideoClip(time)
+    if (!clip) return false
+    if (mediaMap.value[clip.mediaId]?.type !== "video") return false
+    const player = visibleVideoPlayer()
+    if (!player) return true
+    if (player.seeking) return true
+    if (player.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return true
+    return false
+  }
+
   function animate(now: number) {
     if (isExporting.value) return
+
+    if (isPlaying.value && shouldStallForVideo(currentTimeRef.value)) {
+      syncMediaToTime(currentTimeRef.value, false)
+      lastTimeRef.value = now
+      requestRef.value = requestAnimationFrame(animate)
+      return
+    }
+
     if (lastTimeRef.value !== null) {
       const deltaTime = (now - lastTimeRef.value) / 1000
       const nextTime = currentTimeRef.value + deltaTime
@@ -231,10 +453,18 @@ export function usePlayback(refs: PlaybackRefs, isExporting: Ref<boolean>) {
     if (playing && !isExporting.value) {
       currentTimeRef.value = currentTime.value
       lastStateUpdateRef.value = performance.now()
+      syncMediaToTime(currentTime.value, false)
       requestRef.value = requestAnimationFrame(animate)
     } else {
       lastTimeRef.value = null
-      if (requestRef.value) cancelAnimationFrame(requestRef.value)
+      if (requestRef.value) {
+        cancelAnimationFrame(requestRef.value)
+        requestRef.value = null
+      }
+      syncMediaToTime(currentTime.value, false)
+      refs.videoRefA.value?.pause()
+      refs.videoRefB.value?.pause()
+      Object.values(refs.audioRefs.value).forEach((el) => el.pause())
     }
   })
 
@@ -246,6 +476,8 @@ export function usePlayback(refs: PlaybackRefs, isExporting: Ref<boolean>) {
   })
 
   watch([timelineClips, tracks], () => {
+    // 时间线结构变了，清掉槽位绑定，避免预加载指向已删片段
+    clipOnSlot.value = { A: null, B: null }
     if (!isPlaying.value) syncMediaToTime(currentTime.value, false)
   })
 

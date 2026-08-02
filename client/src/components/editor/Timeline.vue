@@ -209,6 +209,7 @@ onUnmounted(() => {
         >
           {{ track.name }}
         </div>
+        <div class="scrollbar-spacer" aria-hidden="true" />
       </div>
 
       <div
@@ -267,6 +268,9 @@ onUnmounted(() => {
             <div class="playhead-head" />
             <div class="playhead-line" />
           </div>
+
+          <!-- 给横向滚动条留空，避免挡住最下方音轨 -->
+          <div class="scrollbar-spacer" aria-hidden="true" />
         </div>
       </div>
     </div>
@@ -386,11 +390,18 @@ onUnmounted(() => {
   flex: 1;
   overflow: auto;
   position: relative;
+  scrollbar-gutter: stable;
 }
 
 .timeline-content {
   position: relative;
   min-height: 100%;
+  box-sizing: border-box;
+}
+
+.scrollbar-spacer {
+  height: 14px;
+  flex-shrink: 0;
 }
 
 .ruler {
