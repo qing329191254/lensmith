@@ -454,13 +454,7 @@ export const messages = {
       errEmptyPrompt: "请先输入分镜提示词。",
       errSelect: "请至少选择一个分镜。",
       errNoVideoUrl: "响应中缺少视频地址",
-      storage: {
-        temporal: "临时",
-        persistent: "持久",
-      },
       banner: {
-        temporalTitle: "临时模式",
-        temporalBody: "离开页面前请先保存。",
         sessionBody: "继续编辑或重置以重新开始。",
       },
       hitl: {
@@ -504,8 +498,7 @@ export const messages = {
         startExtraction: "开始提取",
         extracting: "正在提取 {current}/{total}…",
         skip: "跳过 — 不需要转场",
-        toastTemporal: "{count} 个转场帧已就绪（临时）",
-        toastSaved: "已保存 {count} 个转场帧",
+        toastReady: "已就绪 {count} 个转场帧",
         demoLoaded: "已加载 {count} 个示例转场帧",
       },
       process: {
@@ -518,8 +511,7 @@ export const messages = {
         emptyHint: "跳过转场后不会自动切分。可加载示例、用主图继续，或手动开始 AI 提取。",
         masterRef: "原始主图参考",
         extracting: "正在提取第 {current}/{total} 格…",
-        toastTemporal: "{count} 格已就绪（临时 — 请勿刷新页面）",
-        toastSaved: "已保存 {count} 格",
+        toastReady: "已就绪 {count} 格",
         demoLoaded: "已加载 {count} 个示例分镜",
         errEmpty: "未能提取出分镜，请重试或跳过拆格。",
       },
@@ -1060,13 +1052,7 @@ export const messages = {
       errEmptyPrompt: "Enter a storyboard prompt first.",
       errSelect: "Select at least one panel.",
       errNoVideoUrl: "Video URL missing from response",
-      storage: {
-        temporal: "Temp",
-        persistent: "Persist",
-      },
       banner: {
-        temporalTitle: "Temporary mode",
-        temporalBody: "Save before leaving.",
         sessionBody: "Continue editing or reset to start fresh.",
       },
       hitl: {
@@ -1112,8 +1098,7 @@ export const messages = {
         startExtraction: "Start extraction",
         extracting: "Extracting {current}/{total}…",
         skip: "Skip — no transitions needed",
-        toastTemporal: "{count} transition frames ready (temporary)",
-        toastSaved: "{count} transition frames saved",
+        toastReady: "{count} transition frames ready",
         demoLoaded: "Loaded {count} example transition frames",
       },
       process: {
@@ -1126,8 +1111,7 @@ export const messages = {
         emptyHint: "Skipping transitions does not auto-slice. Load demo, use the master, or start AI extract.",
         masterRef: "Original master reference",
         extracting: "Extracting panel {current}/{total}…",
-        toastTemporal: "{count} panels ready (temporary — don't refresh)",
-        toastSaved: "{count} panels saved",
+        toastReady: "{count} panels ready",
         demoLoaded: "Loaded {count} example panels",
         errEmpty: "Couldn’t extract panels. Retry or skip extraction.",
       },

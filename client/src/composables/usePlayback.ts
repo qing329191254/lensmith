@@ -82,9 +82,12 @@ export function usePlayback(refs: PlaybackRefs, isExporting: Ref<boolean>) {
     player.style.opacity = "0"
   }
 
+  const pendingReady = new WeakMap<HTMLVideoElement, number>()
+
   /**
    * 把某个 clip 准备到指定 video 元素上。
    * standby 预加载时 wantPlay=false、opacity=0，只 seek 到片头 offset。
+   * 源未就绪时挂一次性回调，就绪后再 sync，保证能看到首帧。
    */
   function prepareClipOnPlayer(
     player: HTMLVideoElement,
@@ -104,18 +107,35 @@ export function usePlayback(refs: PlaybackRefs, isExporting: Ref<boolean>) {
       return
     }
 
+    const targetTime = Math.max(0, mediaTime)
     const srcChanged = player.src !== mediaItem.url
     if (srcChanged) {
       player.src = mediaItem.url
+      player.preload = "auto"
       player.load()
     }
 
-    if (
-      player.readyState >= HTMLMediaElement.HAVE_METADATA &&
-      !player.seeking &&
-      (srcChanged || opts.forceSeek || Math.abs(player.currentTime - mediaTime) > 0.1)
-    ) {
-      player.currentTime = Math.max(0, mediaTime)
+    const applySeek = () => {
+      if (player.readyState < HTMLMediaElement.HAVE_METADATA || player.seeking) return
+      if (srcChanged || opts.forceSeek || Math.abs(player.currentTime - targetTime) > 0.1) {
+        // 部分浏览器对 exact 0 不解码首帧，略微偏移
+        player.currentTime = targetTime === 0 ? 0.001 : targetTime
+      }
+    }
+
+    if (player.readyState >= HTMLMediaElement.HAVE_METADATA) {
+      applySeek()
+    } else if (opts.opacity > 0 || opts.forceSeek) {
+      const token = (pendingReady.get(player) ?? 0) + 1
+      pendingReady.set(player, token)
+      const onReady = () => {
+        if (pendingReady.get(player) !== token) return
+        pendingReady.delete(player)
+        if (isExporting.value) return
+        syncMediaToTime(currentTimeRef.value, false)
+      }
+      player.addEventListener("loadedmetadata", onReady, { once: true })
+      player.addEventListener("error", onReady, { once: true })
     }
 
     player.muted = opts.muted
@@ -130,6 +150,20 @@ export function usePlayback(refs: PlaybackRefs, isExporting: Ref<boolean>) {
       }
     } else {
       player.pause()
+    }
+  }
+
+  function showImage(imageEl: HTMLImageElement, url: string) {
+    if (imageEl.src !== url) {
+      imageEl.onload = () => {
+        imageEl.style.opacity = "1"
+      }
+      imageEl.src = url
+      if (imageEl.complete && imageEl.naturalWidth > 0) {
+        imageEl.style.opacity = "1"
+      }
+    } else {
+      imageEl.style.opacity = "1"
     }
   }
 
@@ -194,8 +228,7 @@ export function usePlayback(refs: PlaybackRefs, isExporting: Ref<boolean>) {
         })
       } else if (activeClip && activeMedia?.type === "image" && imageEl) {
         hidePlayer(playerA)
-        if (imageEl.src !== activeMedia.url) imageEl.src = activeMedia.url
-        imageEl.style.opacity = "1"
+        showImage(imageEl, activeMedia.url)
       } else {
         hidePlayer(playerA)
       }
@@ -212,10 +245,7 @@ export function usePlayback(refs: PlaybackRefs, isExporting: Ref<boolean>) {
 
     // —— 图片镜头：隐藏两个 video，仍用待机槽预加载下一视频 —— //
     if (activeClip && activeMedia?.type === "image") {
-      if (imageEl) {
-        if (imageEl.src !== activeMedia.url) imageEl.src = activeMedia.url
-        imageEl.style.opacity = "1"
-      }
+      if (imageEl) showImage(imageEl, activeMedia.url)
       hidePlayer(playerA)
       hidePlayer(playerB)
       // 图片期间不占槽位绑定，避免误 swap
@@ -475,11 +505,15 @@ export function usePlayback(refs: PlaybackRefs, isExporting: Ref<boolean>) {
     }
   })
 
-  watch([timelineClips, tracks], () => {
-    // 时间线结构变了，清掉槽位绑定，避免预加载指向已删片段
-    clipOnSlot.value = { A: null, B: null }
-    if (!isPlaying.value) syncMediaToTime(currentTime.value, false)
-  })
+  watch(
+    [timelineClips, tracks],
+    () => {
+      // 时间线结构变了，清掉槽位绑定，避免预加载指向已删片段
+      clipOnSlot.value = { A: null, B: null }
+      if (!isPlaying.value) syncMediaToTime(currentTime.value, false)
+    },
+    { deep: true },
+  )
 
   onMounted(() => {
     syncMediaToTime(currentTime.value, false)

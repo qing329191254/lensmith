@@ -121,7 +121,6 @@ async function regeneratePanel(index: number) {
     const url = await extractPanelFromGrid(index, props.masterUrl, {
       columns: 3,
       kind: "main",
-      uploadToBlob: false,
     })
     if (url) {
       const updated = [...localPanels.value]

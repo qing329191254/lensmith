@@ -39,14 +39,13 @@ function buildExtractionPrompt(index: number, columns: 2 | 3, kind: "main" | "tr
 export async function extractPanelFromGrid(
   index: number,
   sourceUrl: string,
-  opts: { columns: 2 | 3; kind: "main" | "transition"; uploadToBlob: boolean },
+  opts: { columns: 2 | 3; kind: "main" | "transition" },
 ): Promise<string | null> {
   const formData = new FormData()
   formData.append("mode", "image-editing")
   formData.append("prompt", buildExtractionPrompt(index, opts.columns, opts.kind))
   formData.append("image1Url", sourceUrl)
   formData.append("aspectRatio", "landscape")
-  formData.append("uploadToBlob", opts.uploadToBlob ? "true" : "false")
 
   try {
     const data = await generateImage(formData)
@@ -60,7 +59,7 @@ export async function extractPanelFromGrid(
 export async function extractAllPanels(
   sourceUrl: string,
   count: number,
-  opts: { columns: 2 | 3; kind: "main" | "transition"; uploadToBlob: boolean },
+  opts: { columns: 2 | 3; kind: "main" | "transition" },
   onProgress?: (current: number, total: number) => void,
 ): Promise<string[]> {
   const extracted: string[] = []

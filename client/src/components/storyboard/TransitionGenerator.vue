@@ -4,13 +4,11 @@ import { useI18n } from "vue-i18n"
 import { analyzeStoryboard, generateImage, isRequestGateError } from "@/api/seq"
 import { DEMO_TRANSITION_STORYBOARD } from "@/lib/demo-data"
 import { extractPanelFromGrid } from "@/lib/panel-extraction"
-import type { StorageMode } from "@/stores/storyboard"
 
 const props = withDefaults(
   defineProps<{
     masterUrl: string
     masterPrompt: string
-    storageMode: StorageMode
     /** Server graph pauses after skip/run; AI extract is opt-in at process step. */
     orchestrated?: boolean
     busy?: boolean
@@ -102,7 +100,6 @@ async function processPanels() {
       const url = await extractPanelFromGrid(i, generatedUrl.value, {
         columns: 2,
         kind: "transition",
-        uploadToBlob: props.storageMode === "persistent",
       })
       if (url) {
         extracted.push(url)
@@ -112,10 +109,7 @@ async function processPanels() {
     }
 
     status.value = "complete"
-    toast.value =
-      props.storageMode === "temporal"
-        ? t("storyboard.transition.toastTemporal", { count: extracted.length })
-        : t("storyboard.transition.toastSaved", { count: extracted.length })
+    toast.value = t("storyboard.transition.toastReady", { count: extracted.length })
     emit("generate", extracted, analyzedCount.value)
   } catch (e) {
     if (isRequestGateError(e)) return
@@ -133,7 +127,6 @@ async function regeneratePanel(index: number) {
     const url = await extractPanelFromGrid(index, generatedUrl.value, {
       columns: 2,
       kind: "transition",
-      uploadToBlob: props.storageMode === "persistent",
     })
     if (url) {
       const updated = [...panels.value]

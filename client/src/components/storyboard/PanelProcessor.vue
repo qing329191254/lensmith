@@ -4,14 +4,12 @@ import { useI18n } from "vue-i18n"
 import { DEMO_STORYBOARD } from "@/lib/demo-data"
 import { extractPanelFromGrid } from "@/lib/panel-extraction"
 import { isRequestGateError } from "@/api/seq"
-import type { StorageMode } from "@/stores/storyboard"
 
 const props = withDefaults(
   defineProps<{
     masterUrl: string
     masterPrompt: string
     panelCount: number
-    storageMode: StorageMode
     /** Graph is extracting panels; UI is progress-only. */
     orchestrated?: boolean
     busy?: boolean
@@ -88,7 +86,6 @@ async function processPanels() {
       const url = await extractPanelFromGrid(i, props.masterUrl, {
         columns,
         kind: "main",
-        uploadToBlob: props.storageMode === "persistent",
       })
       if (url) {
         extracted.push(url)
@@ -105,14 +102,7 @@ async function processPanels() {
 
     status.value = "complete"
     progress.value = 100
-
-    if (props.storageMode === "temporal") {
-      const dataUriCount = panels.value.filter((url) => url.startsWith("data:")).length
-      toast.value = t("storyboard.process.toastTemporal", { count: dataUriCount })
-    } else {
-      const httpUrlCount = panels.value.filter((url) => url.startsWith("http")).length
-      toast.value = t("storyboard.process.toastSaved", { count: httpUrlCount })
-    }
+    toast.value = t("storyboard.process.toastReady", { count: panels.value.length })
   } catch (e) {
     if (isRequestGateError(e)) return
     console.error("Processing error:", e)
@@ -143,7 +133,6 @@ async function regeneratePanel(index: number) {
     const url = await extractPanelFromGrid(index, props.masterUrl, {
       columns,
       kind: "main",
-      uploadToBlob: props.storageMode === "persistent",
     })
     if (url) {
       const updated = [...panels.value]

@@ -109,7 +109,12 @@ function handleImport(file: File) {
 }
 
 function handleAddToTimeline(item: MediaItem) {
-  store.addClipToTimeline(item)
+  const at = store.currentTime
+  store.addClipToTimeline(item, at)
+  // 视频/图片加入后立刻同步预览，显示首帧或图片
+  if (item.type === "video" || item.type === "image") {
+    playback.handleSeek(at)
+  }
 }
 
 function handleExportOpen() {

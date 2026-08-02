@@ -404,25 +404,6 @@ function resetAll() {
       </div>
 
       <div class="flex items-center gap-2">
-        <div class="flex rounded-lg bg-[var(--surface)] p-0.5">
-          <button
-            type="button"
-            class="rounded-md px-2.5 py-1 text-xs font-medium transition"
-            :class="store.storageMode === 'temporal' ? 'bg-[var(--bg-elevated)] text-[var(--text)]' : 'text-[var(--muted)]'"
-            @click="store.setStorageMode('temporal')"
-          >
-            {{ t("storyboard.storage.temporal") }}
-          </button>
-          <button
-            type="button"
-            class="rounded-md px-2.5 py-1 text-xs font-medium transition"
-            :class="store.storageMode === 'persistent' ? 'bg-[var(--bg-elevated)] text-[var(--text)]' : 'text-[var(--muted)]'"
-            @click="store.setStorageMode('persistent')"
-          >
-            {{ t("storyboard.storage.persistent") }}
-          </button>
-        </div>
-
         <button
           v-if="store.step !== 'prompt'"
           type="button"
@@ -472,18 +453,6 @@ function resetAll() {
     >
       <p class="flex-1 text-red-200">{{ graphError }}</p>
       <button type="button" class="text-[var(--muted)] hover:text-[var(--text)]" @click="graphError = ''">×</button>
-    </div>
-
-    <div
-      v-if="store.storageMode === 'temporal' && store.step !== 'prompt' && !dismissedBanners.has('temporal')"
-      class="mb-6 flex items-center gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm"
-    >
-      <span class="text-amber-400">⚠</span>
-      <p class="flex-1 text-[var(--text)]/80">
-        <span class="font-medium text-amber-400">{{ t("storyboard.banner.temporalTitle") }}</span>
-        — {{ t("storyboard.banner.temporalBody") }}
-      </p>
-      <button type="button" class="text-[var(--muted)] hover:text-[var(--text)]" @click="dismissBanner('temporal')">×</button>
     </div>
 
     <div
@@ -540,7 +509,6 @@ function resetAll() {
       :busy="graphBusy"
       :master-url="store.masterData.url"
       :master-prompt="store.masterData.prompt"
-      :storage-mode="store.storageMode"
       @run="handleTransitionRun"
       @skip="handleTransitionSkipped"
     />
@@ -553,7 +521,6 @@ function resetAll() {
       :master-url="store.masterData.url"
       :master-prompt="store.masterData.prompt"
       :panel-count="store.masterData.panelCount"
-      :storage-mode="store.storageMode"
       @complete="handleProcessComplete"
       @run-extract="handleProcessRunExtract"
     />

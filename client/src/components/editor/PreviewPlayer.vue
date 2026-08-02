@@ -41,8 +41,8 @@ defineExpose({
 <template>
   <div class="preview">
     <div class="preview-stage" :class="{ 'preview-stage--empty': isEmpty && !isExporting }">
-      <video ref="videoRefA" class="preview-video" playsinline crossorigin="anonymous" />
-      <video ref="videoRefB" class="preview-video" playsinline crossorigin="anonymous" />
+      <video ref="videoRefA" class="preview-video" playsinline preload="auto" crossorigin="anonymous" />
+      <video ref="videoRefB" class="preview-video" playsinline preload="auto" crossorigin="anonymous" />
       <img ref="imageRef" class="preview-image" alt="" />
       <canvas ref="canvasRef" class="hidden-canvas" />
 
@@ -149,47 +149,15 @@ defineExpose({
 }
 
 .empty-monitor {
-  position: relative;
-  aspect-ratio: 16 / 9;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  padding: 1.5rem 1.75rem;
+  padding: 1rem;
   text-align: center;
-  border-radius: 0.75rem;
-  border: 1px solid rgba(232, 168, 124, 0.28);
-  background:
-    linear-gradient(145deg, rgba(232, 168, 124, 0.12), rgba(56, 132, 189, 0.1) 55%, rgba(15, 23, 42, 0.45)),
-    rgba(18, 28, 40, 0.62);
-  backdrop-filter: blur(10px);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
-    0 18px 50px rgba(8, 12, 20, 0.35),
-    0 0 60px rgba(232, 168, 124, 0.08);
-}
-
-.empty-monitor::before,
-.empty-monitor::after {
-  content: "";
-  position: absolute;
-  width: 0.7rem;
-  height: 0.7rem;
-  border-color: rgba(232, 168, 124, 0.7);
-  border-style: solid;
-}
-
-.empty-monitor::before {
-  top: 0.7rem;
-  left: 0.7rem;
-  border-width: 1.5px 0 0 1.5px;
-}
-
-.empty-monitor::after {
-  right: 0.7rem;
-  bottom: 0.7rem;
-  border-width: 0 1.5px 1.5px 0;
+  background: transparent;
+  border: 0;
 }
 
 .empty-eyebrow {

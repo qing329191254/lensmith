@@ -24,13 +24,9 @@ interface SessionPayload {
 }
 
 const SESSION_KEY = "lensmith-storyboard-session"
-export const STORAGE_MODE_KEY = "storyboard-storage-mode"
-
-export type StorageMode = "persistent" | "temporal"
 
 export const useStoryboardStore = defineStore("storyboard", () => {
   const step = ref<StoryboardStep>("prompt")
-  const storageMode = ref<StorageMode>("temporal")
   const masterData = ref<MasterData | null>(null)
   const processedPanels = ref<string[]>([])
   const finalPanels = ref<string[]>([])
@@ -63,28 +59,7 @@ export const useStoryboardStore = defineStore("storyboard", () => {
     }
   }
 
-  function loadStorageMode() {
-    try {
-      const saved = localStorage.getItem(STORAGE_MODE_KEY) as StorageMode | null
-      if (saved === "persistent" || saved === "temporal") {
-        storageMode.value = saved
-      }
-    } catch (e) {
-      console.error("Failed to load storage mode", e)
-    }
-  }
-
-  function setStorageMode(mode: StorageMode) {
-    storageMode.value = mode
-    try {
-      localStorage.setItem(STORAGE_MODE_KEY, mode)
-    } catch (e) {
-      console.error("Failed to save storage mode", e)
-    }
-  }
-
   function load() {
-    loadStorageMode()
     try {
       const raw = localStorage.getItem(SESSION_KEY)
       if (!raw) return
@@ -134,7 +109,6 @@ export const useStoryboardStore = defineStore("storyboard", () => {
 
   return {
     step,
-    storageMode,
     masterData,
     processedPanels,
     finalPanels,
@@ -146,8 +120,6 @@ export const useStoryboardStore = defineStore("storyboard", () => {
     threadId,
     restored,
     load,
-    loadStorageMode,
-    setStorageMode,
     clear,
     persist,
   }
